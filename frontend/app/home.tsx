@@ -18,6 +18,14 @@ export default function HomeScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('songs');
   const [searchQuery, setSearchQuery] = useState('');
   
+  // Auto-Downloader Search States
+  const [searchResults, setSearchResults] = useState<Music[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadMessage, setDownloadMessage] = useState('');
+  const [hasSearched, setHasSearched] = useState(false);
+  const [pollingIntervalId, setPollingIntervalId] = useState<any>(null);
+  
   // Profile & User States
   const [user, setUser] = useState<{ username: string; email: string } | null>(null);
   const [oldPassword, setOldPassword] = useState('');
@@ -39,6 +47,113 @@ export default function HomeScreen() {
     fetchMusic();
     loadUser();
   }, []);
+
+  // Cleanup polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalId) {
+        clearInterval(pollingIntervalId);
+      }
+    };
+  }, [pollingIntervalId]);
+
+  const stopPolling = () => {
+    if (pollingIntervalId) {
+      clearInterval(pollingIntervalId);
+      setPollingIntervalId(null);
+    }
+  };
+
+  const handleTabChange = (tab: TabType) => {
+    setActiveTab(tab);
+    if (tab !== 'search') {
+      stopPolling();
+      setIsDownloading(false);
+      setSearchLoading(false);
+    }
+  };
+
+  const startPolling = (query: string) => {
+    const intervalId = setInterval(async () => {
+      try {
+        console.log(`⏳ Polling search for: "${query}"...`);
+        const response = await api.searchMusic(query);
+        if (response.success && !response.downloading) {
+          console.log(`✅ Polling complete! Song downloaded.`);
+          clearInterval(intervalId);
+          setPollingIntervalId(null);
+          
+          setSearchResults(response.data || []);
+          setIsDownloading(false);
+          setSearchLoading(false);
+          
+          // Refresh general library
+          fetchMusic();
+        } else if (response.success && response.downloading) {
+          if (response.message) {
+            setDownloadMessage(response.message);
+          }
+        }
+      } catch (err) {
+        console.log('Error during search polling:', err);
+      }
+    }, 4000);
+    
+    setPollingIntervalId(intervalId);
+  };
+
+  const handleSearchSubmit = async () => {
+    if (!searchQuery.trim()) {
+      Alert.alert('Empty Search', 'Please type a song title to search');
+      return;
+    }
+    
+    stopPolling();
+    setSearchLoading(true);
+    setIsDownloading(false);
+    setDownloadMessage('');
+    setHasSearched(true);
+    
+    try {
+      const response = await api.searchMusic(searchQuery);
+      if (response.success) {
+        if (response.downloading) {
+          setIsDownloading(true);
+          setDownloadMessage(response.message || 'Downloading your song... Please wait.');
+          startPolling(searchQuery);
+        } else {
+          setSearchResults(response.data || []);
+          setSearchLoading(false);
+          fetchMusic();
+        }
+      } else {
+        Alert.alert('Error', response.message || 'Search failed');
+        setSearchLoading(false);
+      }
+    } catch (error: any) {
+      console.log('❌ Search Error:', error);
+      Alert.alert('Error', error.response?.data?.message || 'Failed to search song');
+      setSearchLoading(false);
+    }
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setHasSearched(false);
+    setIsDownloading(false);
+    setSearchLoading(false);
+    stopPolling();
+  };
+
+  const getSearchData = () => {
+    if (hasSearched) {
+      return searchResults;
+    }
+    return musicList.filter(song =>
+      song.title.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  };
 
   const loadUser = async () => {
     try {
@@ -208,9 +323,7 @@ export default function HomeScreen() {
   };
 
   const renderSearchTab = () => {
-    const filteredMusic = musicList.filter(song =>
-      song.title.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const searchData = getSearchData();
 
     return (
       <View style={styles.tabContentContainer}>
@@ -219,34 +332,58 @@ export default function HomeScreen() {
           <Text style={styles.headerTitle}>Search Music</Text>
         </View>
 
-        {/* Search Input Bar */}
-        <View style={styles.searchBarContainer}>
-          <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search songs by title..."
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholderTextColor="#999"
-            autoCapitalize="none"
-          />
-          {searchQuery ? (
-            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearSearchButton}>
-              <Ionicons name="close-circle" size={18} color="#666" />
-            </TouchableOpacity>
-          ) : null}
+        {/* Search Input Bar & Button */}
+        <View style={styles.searchRow}>
+          <View style={styles.searchBarContainer}>
+            <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search songs by title..."
+              value={searchQuery}
+              onChangeText={(text) => {
+                setSearchQuery(text);
+                if (hasSearched) {
+                  setHasSearched(false);
+                  stopPolling();
+                }
+              }}
+              onSubmitEditing={handleSearchSubmit}
+              placeholderTextColor="#999"
+              autoCapitalize="none"
+              returnKeyType="search"
+            />
+            {searchQuery ? (
+              <TouchableOpacity onPress={handleClearSearch} style={styles.clearSearchButton}>
+                <Ionicons name="close-circle" size={18} color="#666" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          <TouchableOpacity style={styles.searchButton} onPress={handleSearchSubmit}>
+            <Text style={styles.searchButtonText}>Search</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Results Grid */}
-        {filteredMusic.length === 0 ? (
+        {/* Loading / Downloading Spinner */}
+        {searchLoading || isDownloading ? (
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No matching songs found</Text>
+            <ActivityIndicator size="large" color="#007AFF" />
+            <Text style={styles.loadingStatusText}>
+              {isDownloading ? downloadMessage : 'Searching database...'}
+            </Text>
+          </View>
+        ) : searchData.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>
+              {hasSearched 
+                ? 'No matching songs found in the database. Tap search to find/download from YouTube.' 
+                : 'Type a song title and tap Search.'}
+            </Text>
           </View>
         ) : (
           <FlatList
             key="search-grid"
             numColumns={2}
-            data={filteredMusic}
+            data={searchData}
             renderItem={renderMusicItem}
             keyExtractor={(item) => item._id}
             extraData={{ currentlyPlaying, isPlaying }}
@@ -410,7 +547,7 @@ export default function HomeScreen() {
       <View style={styles.tabBar}>
         <TouchableOpacity 
           style={[styles.tabItem, activeTab === 'songs' && styles.tabItemActive]}
-          onPress={() => setActiveTab('songs')}
+          onPress={() => handleTabChange('songs')}
         >
           <Ionicons 
             name={activeTab === 'songs' ? 'musical-notes' : 'musical-notes-outline'} 
@@ -421,10 +558,10 @@ export default function HomeScreen() {
             Songs
           </Text>
         </TouchableOpacity>
-
+ 
         <TouchableOpacity 
           style={[styles.tabItem, activeTab === 'search' && styles.tabItemActive]}
-          onPress={() => setActiveTab('search')}
+          onPress={() => handleTabChange('search')}
         >
           <Ionicons 
             name={activeTab === 'search' ? 'search' : 'search-outline'} 
@@ -435,10 +572,10 @@ export default function HomeScreen() {
             Search
           </Text>
         </TouchableOpacity>
-
+ 
         <TouchableOpacity 
           style={[styles.tabItem, activeTab === 'profile' && styles.tabItemActive]}
-          onPress={() => setActiveTab('profile')}
+          onPress={() => handleTabChange('profile')}
         >
           <Ionicons 
             name={activeTab === 'profile' ? 'person' : 'person-outline'} 
@@ -650,15 +787,45 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     fontWeight: 'bold',
   },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    marginTop: 15,
+    marginBottom: 5,
+  },
   searchBarContainer: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    margin: 15,
     borderRadius: 10,
     paddingHorizontal: 10,
     borderWidth: 1,
     borderColor: '#eee',
+    height: 45,
+  },
+  searchButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 15,
+    height: 45,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 10,
+  },
+  searchButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  loadingStatusText: {
+    marginTop: 15,
+    fontSize: 16,
+    color: '#333',
+    textAlign: 'center',
+    paddingHorizontal: 30,
+    fontWeight: '500',
   },
   searchIcon: {
     marginRight: 8,

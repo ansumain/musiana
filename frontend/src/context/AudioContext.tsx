@@ -6,6 +6,7 @@ export interface Music {
   title: string;
   duration: string;
   url: string;
+  imageUrl?: string;
 }
 
 interface AudioContextProps {
@@ -68,7 +69,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         staysActiveInBackground: true,
         playsInSilentModeIOS: true,
         shouldRouteThroughEarpieceIOS: false,
-      });
+      } as any);
 
       const { sound: newSound } = await Audio.Sound.createAsync(
         { uri: song.url },

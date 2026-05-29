@@ -62,6 +62,25 @@ export const api = {
     return response.data;
   },
 
+  // Search music by query (requires authentication)
+  searchMusic: async (query) => {
+    const token = await AsyncStorage.getItem('token');
+    
+    console.log('🚀 Searching music...');
+    console.log('📍 API URL:', `${API_URL}/search`);
+    console.log('🔑 Token:', token ? 'Present' : 'Missing');
+    
+    const response = await axios.get(`${API_URL}/search`, {
+      params: { q: query },
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    
+    console.log('✅ Search response:', response.data);
+    return response.data;
+  },
+
   // Get stored token
   getToken: async () => {
     return await AsyncStorage.getItem('token');
