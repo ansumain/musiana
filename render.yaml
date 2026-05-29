@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: musiana-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: "pip3 install yt-dlp && npm install"
+    startCommand: "node server.js"
+    envVars:
+      - key: NODE_ENV
+        value: production

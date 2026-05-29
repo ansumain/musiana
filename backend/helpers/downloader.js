@@ -1,7 +1,7 @@
 const { exec, spawn } = require('child_process');
 
-// Ensure standard Mac package paths are in the process environment PATH so child processes can resolve yt-dlp and ffmpeg
-if (process.env.PATH && !process.env.PATH.includes('/opt/homebrew/bin')) {
+// On macOS (local dev): ensure Homebrew binaries are in PATH for yt-dlp and ffmpeg
+if (process.platform === 'darwin' && process.env.PATH && !process.env.PATH.includes('/opt/homebrew/bin')) {
   process.env.PATH = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH}`;
 }
 const util = require('util');
