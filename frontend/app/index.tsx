@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
-import React, { useState } from 'react';
-import { View, TextInput, Text, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, ScrollView, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, TextInput, Text, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, ScrollView, Platform, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../src/services/api';
 
@@ -9,6 +9,27 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  useEffect(() => {
+    checkExistingAuth();
+  }, []);
+
+  const checkExistingAuth = async () => {
+    try {
+      const token = await api.getToken();
+      const userData = await api.getUser();
+      if (token && userData) {
+        console.log('🔑 Valid session found, auto-logging in...');
+        router.replace('/home');
+      } else {
+        setCheckingAuth(false);
+      }
+    } catch (e) {
+      console.log('Error checking existing auth:', e);
+      setCheckingAuth(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (!username || !password) {
@@ -42,9 +63,17 @@ export default function LoginScreen() {
     }
   };
 
+  if (checkingAuth) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#130D22', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#8B5CF6" />
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.container}
     >
       <ScrollView

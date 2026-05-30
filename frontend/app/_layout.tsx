@@ -4,7 +4,7 @@ import { AudioProvider } from '../src/context/AudioContext';
 export default function RootLayout() {
   return (
     <AudioProvider>
-      <Stack>
+      <Stack screenOptions={{ contentStyle: { backgroundColor: '#130D22' } }}>
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="register" options={{ headerShown: false }} />
         <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
