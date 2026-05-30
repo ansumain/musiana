@@ -2,7 +2,7 @@ const Music = require('../models/Music')
 
 const fetchAllMusic = async (req, res) => {
     try {
-        const allMusic = await Music.find();
+        const allMusic = await Music.find().sort({ createdAt: -1 });
         if (!allMusic) {
             return res.status(404).json({
                 success: false,

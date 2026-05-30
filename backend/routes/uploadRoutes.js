@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const { uploadAudio, trimAudio } = require('../controllers/upload-controller');
+const { uploadAudio, trimAudio, trimAndDownloadAudio } = require('../controllers/upload-controller');
 const authMiddleware = require('../middlewares/auth-middleware')
 const checkAdmin = require('../middlewares/admin-middleware')
 
@@ -13,5 +13,11 @@ router.post('/audio', authMiddleware, checkAdmin, upload.single('audio'), upload
 
 // POST /api/upload/trim/:id - Trim audio file
 router.post('/trim/:id', authMiddleware, checkAdmin, trimAudio);
+
+// GET /api/upload/trim-download/:id - Trim and stream/download ringtone (all users)
+router.get('/trim-download/:id', authMiddleware, trimAndDownloadAudio);
+
+// POST /api/upload/trim-download/:id - Trim and stream/download ringtone (all users)
+router.post('/trim-download/:id', authMiddleware, trimAndDownloadAudio);
 
 module.exports = router;

@@ -172,4 +172,87 @@ const trimAudio = async (req, res) => {
   }
 };
 
-module.exports = { uploadAudio, trimAudio }
+const trimAndDownloadAudio = async (req, res) => {
+  const { id } = req.params;
+  
+  // Accept from query (GET) or body (POST)
+  const startTimeVal = req.query.startTime !== undefined ? req.query.startTime : req.body.startTime;
+  const endTimeVal = req.query.endTime !== undefined ? req.query.endTime : req.body.endTime;
+
+  const startTime = parseFloat(startTimeVal);
+  const endTime = parseFloat(endTimeVal);
+
+  if (startTimeVal === undefined || isNaN(startTime) || startTime < 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Please provide a valid startTime in seconds'
+    });
+  }
+
+  if (endTimeVal === undefined || isNaN(endTime) || endTime <= startTime) {
+    return res.status(400).json({
+      success: false,
+      message: 'Please provide a valid endTime in seconds that is greater than startTime'
+    });
+  }
+
+  const tempInput = path.join(__dirname, `../uploads/trim_download_in_${Date.now()}.mp3`);
+  const tempOutput = path.join(__dirname, `../uploads/trim_download_out_${Date.now()}.mp3`);
+
+  try {
+    const music = await Music.findById(id);
+    if (!music) {
+      return res.status(404).json({
+        success: false,
+        message: 'Song not found'
+      });
+    }
+
+    console.log(`✂️ Trimming song for ringtone download "${music.title}" from ${startTime}s to ${endTime}s...`);
+
+    // Download original audio from Cloudinary
+    await downloadFile(music.url, tempInput);
+
+    // Trim using ffmpeg-static
+    const duration = endTime - startTime;
+    const cmd = `"${ffmpegStatic}" -y -ss ${startTime} -t ${duration} -i "${tempInput}" -acodec copy "${tempOutput}"`;
+    await execPromise(cmd);
+
+    if (!fs.existsSync(tempOutput)) {
+      throw new Error('Trimmed file was not outputted by ffmpeg');
+    }
+
+    // Set clean filename: e.g. "Song Name_ringtone.mp3"
+    const originalTitle = music.title || 'song';
+    const safeTitle = originalTitle.replace(/[\\/:*?"<>|]/g, '_');
+    const downloadName = `${safeTitle}_ringtone.mp3`;
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(downloadName)}"`);
+
+    // Send file and clean up afterwards
+    res.download(tempOutput, downloadName, (err) => {
+      // Clean up temp files
+      if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput);
+      if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput);
+
+      if (err) {
+        console.error('Error sending file:', err);
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Trim and download error:', error);
+    // Clean up temp files in case of error
+    if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput);
+    if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to trim and download audio',
+      error: error.message
+    });
+  }
+};
+
+module.exports = { uploadAudio, trimAudio, trimAndDownloadAudio }

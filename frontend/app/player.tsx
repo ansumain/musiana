@@ -4,6 +4,8 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { useAudio } from '../src/context/AudioContext';
 import { api } from '../src/services/api';
 
@@ -43,6 +45,11 @@ export default function PlayerScreen() {
   // Admin states
   const [isAdmin, setIsAdmin] = useState(false);
   const [showOptionsModal, setShowOptionsModal] = useState(false);
+
+  // Download states
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [showDownloadProgressModal, setShowDownloadProgressModal] = useState(false);
+  const [downloadProgressText, setDownloadProgressText] = useState('');
 
   // If we are not sliding, sync the sliding value with the actual position
   useEffect(() => {
@@ -96,6 +103,67 @@ export default function PlayerScreen() {
     setIsSliding(false);
   };
 
+  const handleDownloadFull = async () => {
+    setShowOptionsModal(false);
+
+    if (!currentlyPlaying || !currentlyPlaying.url) {
+      Alert.alert('Error', 'No audio URL found for this track.');
+      return;
+    }
+
+    const originalTitle = currentlyPlaying.title || 'song';
+    const safeTitle = originalTitle.replace(/[\\/:*?"<>|]/g, '_');
+    const localUri = FileSystem.cacheDirectory + `${safeTitle}.mp3`;
+
+    try {
+      setShowDownloadProgressModal(true);
+      setDownloadProgress(0);
+      setDownloadProgressText('Initializing download...');
+
+      const callback = (downloadProgressData: any) => {
+        const progress = downloadProgressData.totalBytesWritten / downloadProgressData.totalBytesExpectedToWrite;
+        const pct = Math.floor(progress * 100);
+        setDownloadProgress(isNaN(pct) ? 0 : Math.min(pct, 99));
+        setDownloadProgressText(`Downloading... ${pct}%`);
+      };
+
+      const downloadResumable = FileSystem.createDownloadResumable(
+        currentlyPlaying.url,
+        localUri,
+        {},
+        callback
+      );
+
+      const downloadResult = await downloadResumable.downloadAsync();
+      
+      if (downloadResult && downloadResult.uri) {
+        setDownloadProgress(100);
+        setDownloadProgressText('Download complete! Opening share sheet...');
+
+        setTimeout(async () => {
+          setShowDownloadProgressModal(false);
+          
+          if (await Sharing.isAvailableAsync()) {
+            await Sharing.shareAsync(downloadResult.uri, {
+              mimeType: 'audio/mpeg',
+              dialogTitle: `Save ${currentlyPlaying.title}`,
+              UTI: 'public.mp3',
+            });
+          } else {
+            Alert.alert('Error', 'Sharing/Saving is not supported on this device.');
+          }
+        }, 1000);
+      } else {
+        throw new Error('Download failed');
+      }
+
+    } catch (err: any) {
+      setShowDownloadProgressModal(false);
+      console.log('Download full song error:', err);
+      Alert.alert('Error', 'Failed to download the song. Please try again.');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
@@ -104,13 +172,9 @@ export default function PlayerScreen() {
           <Ionicons name="chevron-down" size={28} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Now Playing</Text>
-        {isAdmin ? (
-          <TouchableOpacity onPress={() => setShowOptionsModal(true)} style={styles.headerButton}>
-            <Ionicons name="ellipsis-horizontal" size={26} color="#fff" />
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.headerButtonPlaceholder} />
-        )}
+        <TouchableOpacity onPress={() => setShowOptionsModal(true)} style={styles.headerButton}>
+          <Ionicons name="ellipsis-horizontal" size={26} color="#fff" />
+        </TouchableOpacity>
       </View>
 
       {/* Album Art Cover */}
@@ -198,7 +262,7 @@ export default function PlayerScreen() {
         </View>
       </View>
 
-      {/* Options Modal (Admin only) */}
+      {/* Options Modal (All users) */}
       <Modal
         visible={showOptionsModal}
         transparent={true}
@@ -213,15 +277,36 @@ export default function PlayerScreen() {
           <View style={styles.optionsContainer}>
             <Text style={styles.optionsTitle}>Track Actions</Text>
             
+            {isAdmin && (
+              <TouchableOpacity 
+                style={styles.optionRow} 
+                onPress={() => {
+                  setShowOptionsModal(false);
+                  router.push('/trim');
+                }}
+              >
+                <Ionicons name="cut-outline" size={20} color="#FF3B30" style={{ marginRight: 10 }} />
+                <Text style={styles.optionText}>Trim this audio (Global Edit)</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity 
+              style={styles.optionRow} 
+              onPress={handleDownloadFull}
+            >
+              <Ionicons name="download-outline" size={20} color="#34C759" style={{ marginRight: 10 }} />
+              <Text style={styles.optionText}>Download full song</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity 
               style={styles.optionRow} 
               onPress={() => {
                 setShowOptionsModal(false);
-                router.push('/trim');
+                router.push('/trim?mode=ringtone');
               }}
             >
-              <Ionicons name="cut-outline" size={20} color="#FF3B30" style={{ marginRight: 10 }} />
-              <Text style={styles.optionText}>Trim this audio</Text>
+              <Ionicons name="musical-note-outline" size={20} color="#BDB4FF" style={{ marginRight: 10 }} />
+              <Text style={styles.optionText}>Make ringtone</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
@@ -315,6 +400,29 @@ export default function PlayerScreen() {
             >
               <Text style={styles.closeQueueBtnText}>Close Queue</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Custom Download Progress Modal */}
+      <Modal
+        visible={showDownloadProgressModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {}}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.downloadModalContainer}>
+            <ActivityIndicator size="large" color="#8B5CF6" style={{ marginBottom: 20 }} />
+            <Text style={styles.downloadModalTitle}>Downloading Song</Text>
+            <Text style={styles.downloadPercentage}>{downloadProgress}%</Text>
+            
+            {/* Progress Bar Track */}
+            <View style={styles.progressBarTrack}>
+              <View style={[styles.progressBarFill, { width: `${downloadProgress}%` }]} />
+            </View>
+            
+            <Text style={styles.downloadProgressSub}>{downloadProgressText}</Text>
           </View>
         </View>
       </Modal>
@@ -608,5 +716,45 @@ const styles = StyleSheet.create({
     color: '#7C7899',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  downloadModalContainer: {
+    width: '80%',
+    backgroundColor: '#1C1330',
+    borderRadius: 16,
+    padding: 25,
+    borderWidth: 1,
+    borderColor: '#332354',
+    alignItems: 'center',
+  },
+  downloadModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 5,
+  },
+  downloadPercentage: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#8B5CF6',
+    marginBottom: 15,
+  },
+  progressBarTrack: {
+    height: 6,
+    width: '100%',
+    backgroundColor: '#130D22',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 15,
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#8B5CF6',
+    borderRadius: 3,
+  },
+  downloadProgressSub: {
+    fontSize: 12,
+    color: '#7C7899',
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });

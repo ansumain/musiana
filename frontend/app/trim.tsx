@@ -14,8 +14,10 @@ import {
   TextInput,
   Modal
 } from 'react-native';
-import { router, Stack } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { Audio, AVPlaybackStatus } from 'expo-av';
 import { useAudio } from '../src/context/AudioContext';
 import { api } from '../src/services/api';
@@ -25,6 +27,8 @@ const COVER_SIZE = width * 0.35;
 
 export default function TrimScreen() {
   const { currentlyPlaying, play, pause: contextPause, musicList, setMusicList } = useAudio();
+  const { mode } = useLocalSearchParams<{ mode?: string }>();
+  const isRingtoneMode = mode === 'ringtone';
 
   // Parsing initial duration
   const parseDuration = (dStr: string) => {
@@ -273,16 +277,17 @@ export default function TrimScreen() {
     })
   ).current;
 
-  const startProgressSimulation = () => {
+  const startProgressSimulation = (isRingtone: boolean) => {
     setTrimProgress(0);
-    setTrimProgressText('Trimming track... This may take a while. Approx. 10 seconds remaining');
+    const actionText = isRingtone ? 'Creating ringtone' : 'Trimming track';
+    setTrimProgressText(`${actionText}... This may take a while. Approx. 10 seconds remaining`);
     
     const totalEstSeconds = 10;
     const interval = setInterval(() => {
       setTrimProgress((prev) => {
         if (prev >= 98) {
           clearInterval(interval);
-          setTrimProgressText('Trimming track... This may take a while. Approx. 1 second remaining');
+          setTrimProgressText(`${actionText}... This may take a while. Approx. 1 second remaining`);
           return 98;
         }
         
@@ -290,7 +295,7 @@ export default function TrimScreen() {
         let nextVal = prev + step;
         
         const secondsRemaining = Math.max(1, Math.ceil(totalEstSeconds - (nextVal / 98) * totalEstSeconds));
-        setTrimProgressText(`Trimming track... This may take a while. Approx. ${secondsRemaining} seconds remaining`);
+        setTrimProgressText(`${actionText}... This may take a while. Approx. ${secondsRemaining} seconds remaining`);
         
         return Math.min(nextVal, 98);
       });
@@ -308,41 +313,94 @@ export default function TrimScreen() {
     setShowConfirmModal(false);
     setShowLoadingModal(true);
     
-    const progressInterval = startProgressSimulation();
+    const progressInterval = startProgressSimulation(isRingtoneMode);
     
     try {
-      const response = await api.trimMusic(currentlyPlaying._id, trimStart, trimEnd);
-      if (response.success) {
-        clearInterval(progressInterval);
-        setTrimProgress(100);
-        setTrimProgressText('Success! Overwritten track globally.');
+      if (isRingtoneMode) {
+        // Ringtone trim-download path for all users
+        const token = await api.getToken();
+        const originalTitle = currentlyPlaying.title || 'song';
+        const safeTitle = originalTitle.replace(/[\\/:*?"<>|]/g, '_');
+        const localUri = FileSystem.cacheDirectory + `${safeTitle}_ringtone.mp3`;
         
-        // Let the user visually see 100% success before closing
-        setTimeout(async () => {
-          setShowLoadingModal(false);
-          const newSong = response.data;
-          
-          if (sound) {
-            await sound.unloadAsync();
+        // Use GET query parameters for legacy FileSystem compatibility
+        const downloadUrl = `${api.getApiUrl()}/upload/trim-download/${currentlyPlaying._id}?startTime=${trimStart}&endTime=${trimEnd}`;
+        
+        const downloadResumable = FileSystem.createDownloadResumable(
+          downloadUrl,
+          localUri,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
           }
+        );
+        
+        const result = await downloadResumable.downloadAsync();
+        
+        clearInterval(progressInterval);
+        
+        if (result && result.uri) {
+          setTrimProgress(100);
+          setTrimProgressText('Success! Opening share sheet...');
+          
+          setTimeout(async () => {
+            setShowLoadingModal(false);
+            
+            if (sound) {
+              await sound.unloadAsync();
+            }
+            
+            if (await Sharing.isAvailableAsync()) {
+              await Sharing.shareAsync(result.uri, {
+                mimeType: 'audio/mpeg',
+                dialogTitle: `Save Ringtone: ${currentlyPlaying.title}`,
+                UTI: 'public.mp3',
+              });
+            } else {
+              Alert.alert('Error', 'Sharing/Saving is not supported on this device.');
+            }
+            
+            router.back();
+          }, 1000);
+        } else {
+          throw new Error('Failed to download trimmed ringtone');
+        }
+      } else {
+        // Admin global trim overwrite path
+        const response = await api.trimMusic(currentlyPlaying._id, trimStart, trimEnd);
+        if (response.success) {
+          clearInterval(progressInterval);
+          setTrimProgress(100);
+          setTrimProgressText('Success! Overwritten track globally.');
+          
+          // Let the user visually see 100% success before closing
+          setTimeout(async () => {
+            setShowLoadingModal(false);
+            const newSong = response.data;
+            
+            if (sound) {
+              await sound.unloadAsync();
+            }
 
-          // Immediately patch the in-memory music list/queue so the home
-          // screen grid and mini-player show the updated duration/URL
-          // without waiting for the next fetchMusic() call.
-          const updatedList = musicList.map(s =>
-            s._id === newSong._id ? newSong : s
-          );
-          setMusicList(updatedList);
+            // Immediately patch the in-memory music list/queue so the home
+            // screen grid and mini-player show the updated duration/URL
+            // without waiting for the next fetchMusic() call.
+            const updatedList = musicList.map(s =>
+              s._id === newSong._id ? newSong : s
+            );
+            setMusicList(updatedList);
 
-          await play(newSong, true);
-          router.back();
-        }, 1200);
+            await play(newSong, true);
+            router.back();
+          }, 1200);
+        }
       }
     } catch (err: any) {
       clearInterval(progressInterval);
       setShowLoadingModal(false);
-      console.log('Trimming error:', err);
-      Alert.alert('Error', err.response?.data?.message || 'Failed to trim audio track');
+      console.log('Trimming/Downloading error:', err);
+      Alert.alert('Error', err.response?.data?.message || err.message || 'Failed to process audio track');
     }
   };
 
@@ -385,7 +443,7 @@ export default function TrimScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
           <Ionicons name="arrow-back" size={26} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitleLeft}>Trim Audio</Text>
+        <Text style={styles.headerTitleLeft}>{isRingtoneMode ? 'Make Ringtone' : 'Trim Audio'}</Text>
       </View>
 
       {isLoading ? (
@@ -613,8 +671,8 @@ export default function TrimScreen() {
               style={styles.saveBtn} 
               onPress={handleOpenConfirm}
             >
-              <Ionicons name="cut" size={18} color="#fff" style={{ marginRight: 6 }} />
-              <Text style={styles.saveBtnText}>Trim</Text>
+              <Ionicons name={isRingtoneMode ? "download-outline" : "cut"} size={18} color="#fff" style={{ marginRight: 6 }} />
+              <Text style={styles.saveBtnText}>{isRingtoneMode ? 'Download' : 'Trim'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -629,10 +687,14 @@ export default function TrimScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.confirmModalContainer}>
-            <Ionicons name="warning" size={48} color="#FF3B30" style={{ marginBottom: 15 }} />
-            <Text style={styles.confirmModalTitle}>Are you sure you want to trim?</Text>
+            <Ionicons name={isRingtoneMode ? "information-circle-outline" : "warning"} size={48} color={isRingtoneMode ? "#8B5CF6" : "#FF3B30"} style={{ marginBottom: 15 }} />
+            <Text style={styles.confirmModalTitle}>
+              {isRingtoneMode ? 'Download this ringtone?' : 'Are you sure you want to trim?'}
+            </Text>
             <Text style={styles.confirmModalSub}>
-              Trimming as admin, the trim would be reflected with all the users.
+              {isRingtoneMode
+                ? 'This will trim the selected section and download it to your device. The original song will not be affected.'
+                : 'Trimming as admin, the trim would be reflected with all the users.'}
             </Text>
             
             <View style={styles.confirmActionRow}>
@@ -664,7 +726,7 @@ export default function TrimScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.loadingModalContainer}>
             <ActivityIndicator size="large" color="#8B5CF6" style={{ marginBottom: 20 }} />
-            <Text style={styles.loadingModalTitle}>Trimming Audio</Text>
+            <Text style={styles.loadingModalTitle}>{isRingtoneMode ? 'Downloading Ringtone' : 'Trimming Audio'}</Text>
             <Text style={styles.loadingPercentage}>{Math.floor(trimProgress)}%</Text>
             
             {/* Progress Bar Track */}

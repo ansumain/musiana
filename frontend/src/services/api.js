@@ -1,9 +1,8 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Backend URL — switches between local dev and production
-const API_URL = 'http://192.168.29.92:3000/api';  // ✅ Local physical device (dev only)
-// const API_URL = 'https://musiana-1e9c.onrender.com/api';  // Production (Render)
+// const API_URL = 'http://192.168.29.136:3000/api';  // ✅ Local physical device (dev only)
+const API_URL = 'https://musiana-1e9c.onrender.com/api';  // Production (Render)
 
 export const api = {
   // Register new user
@@ -180,5 +179,8 @@ export const api = {
     });
     
     return response.data;
-  }
+  },
+
+  // Expose API URL helper for file downloads
+  getApiUrl: () => API_URL
 };
