@@ -11,7 +11,8 @@ import {
   ActivityIndicator, 
   Alert,
   PanResponder,
-  TextInput
+  TextInput,
+  Modal
 } from 'react-native';
 import { router, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -49,7 +50,12 @@ export default function TrimScreen() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackPos, setPlaybackPos] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-  const [isTrimming, setIsTrimming] = useState(false);
+
+  // Custom themed Modal & Progress states
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showLoadingModal, setShowLoadingModal] = useState(false);
+  const [trimProgress, setTrimProgress] = useState(0);
+  const [trimProgressText, setTrimProgressText] = useState('');
 
   // Width of the slider track bar
   const [sliderWidth, setSliderWidth] = useState(0);
@@ -134,6 +140,7 @@ export default function TrimScreen() {
         localSound.unloadAsync();
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentlyPlaying]);
 
   const onPlaybackStatusUpdate = (status: AVPlaybackStatus) => {
@@ -266,49 +273,78 @@ export default function TrimScreen() {
     })
   ).current;
 
-  const handleConfirmTrim = async () => {
-    if (!currentlyPlaying) return;
+  const startProgressSimulation = () => {
+    setTrimProgress(0);
+    setTrimProgressText('Connecting with server...');
+    
+    const interval = setInterval(() => {
+      setTrimProgress((prev) => {
+        if (prev >= 98) {
+          clearInterval(interval);
+          return 98;
+        }
+        
+        let step = 1.2;
+        let nextVal = prev + step;
+        
+        if (nextVal < 25) {
+          setTrimProgressText('Downloading audio from Cloudinary...');
+        } else if (nextVal < 55) {
+          setTrimProgressText('Trimming audio segment with FFmpeg...');
+        } else if (nextVal < 85) {
+          setTrimProgressText('Uploading trimmed segment back...');
+        } else {
+          setTrimProgressText('Saving track metadata to Database...');
+        }
+        
+        return Math.min(nextVal, 98);
+      });
+    }, 70);
+    
+    return interval;
+  };
 
+  const executeTrim = async () => {
+    if (!currentlyPlaying) return;
+    
+    setShowConfirmModal(false);
+    setShowLoadingModal(true);
+    
+    const progressInterval = startProgressSimulation();
+    
+    try {
+      const response = await api.trimMusic(currentlyPlaying._id, trimStart, trimEnd);
+      if (response.success) {
+        clearInterval(progressInterval);
+        setTrimProgress(100);
+        setTrimProgressText('Success! Overwritten track globally.');
+        
+        // Let the user visually see 100% success before closing
+        setTimeout(async () => {
+          setShowLoadingModal(false);
+          const newSong = response.data;
+          
+          if (sound) {
+            await sound.unloadAsync();
+          }
+          await play(newSong, true);
+          router.back();
+        }, 1200);
+      }
+    } catch (err: any) {
+      clearInterval(progressInterval);
+      setShowLoadingModal(false);
+      console.log('Trimming error:', err);
+      Alert.alert('Error', err.response?.data?.message || 'Failed to trim audio track');
+    }
+  };
+
+  const handleOpenConfirm = () => {
     if (trimEnd - trimStart <= 0) {
       Alert.alert('Error', 'Trimmed audio length must be greater than 0 seconds.');
       return;
     }
-
-    Alert.alert(
-      '⚠ WARNING: Destructive Overwrite',
-      `This will permanently trim "${currentlyPlaying.title}" to [${formatTime(trimStart)} - ${formatTime(trimEnd)}]. The original track will be overwritten on the database and Cloudinary. This action is irreversible.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm Overwrite',
-          style: 'destructive',
-          onPress: async () => {
-            setIsTrimming(true);
-            try {
-              const response = await api.trimMusic(currentlyPlaying._id, trimStart, trimEnd);
-              if (response.success) {
-                Alert.alert('Success', 'Audio track trimmed successfully!');
-                const newSong = response.data;
-                
-                // Unload local sound
-                if (sound) {
-                  await sound.unloadAsync();
-                }
-                
-                // Play new song in context
-                await play(newSong, true);
-                router.back();
-              }
-            } catch (err: any) {
-              console.log('Trimming error:', err);
-              Alert.alert('Error', err.response?.data?.message || 'Failed to trim audio track');
-            } finally {
-              setIsTrimming(false);
-            }
-          }
-        }
-      ]
-    );
+    setShowConfirmModal(true);
   };
 
   if (!currentlyPlaying) {
@@ -562,28 +598,77 @@ export default function TrimScreen() {
             <TouchableOpacity 
               style={styles.cancelBtn} 
               onPress={() => router.back()}
-              disabled={isTrimming}
             >
               <Text style={styles.cancelBtnText}>Cancel</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
               style={styles.saveBtn} 
-              onPress={handleConfirmTrim}
-              disabled={isTrimming}
+              onPress={handleOpenConfirm}
             >
-              {isTrimming ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="cut" size={18} color="#fff" style={{ marginRight: 6 }} />
-                  <Text style={styles.saveBtnText}>Confirm & Trim</Text>
-                </>
-              )}
+              <Ionicons name="cut" size={18} color="#fff" style={{ marginRight: 6 }} />
+              <Text style={styles.saveBtnText}>Trim</Text>
             </TouchableOpacity>
           </View>
         </View>
       )}
+
+      {/* Custom Confirmation Modal */}
+      <Modal
+        visible={showConfirmModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowConfirmModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmModalContainer}>
+            <Ionicons name="warning" size={48} color="#FF3B30" style={{ marginBottom: 15 }} />
+            <Text style={styles.confirmModalTitle}>Are you sure you want to trim?</Text>
+            <Text style={styles.confirmModalSub}>
+              Trimming as admin, the trim would be reflected with all the users.
+            </Text>
+            
+            <View style={styles.confirmActionRow}>
+              <TouchableOpacity 
+                style={styles.confirmCancelBtn} 
+                onPress={() => setShowConfirmModal(false)}
+              >
+                <Text style={styles.confirmCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.confirmSaveBtn} 
+                onPress={executeTrim}
+              >
+                <Text style={styles.confirmSaveText}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Custom Loading Modal */}
+      <Modal
+        visible={showLoadingModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {}}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.loadingModalContainer}>
+            <ActivityIndicator size="large" color="#8B5CF6" style={{ marginBottom: 20 }} />
+            <Text style={styles.loadingModalTitle}>Trimming Audio</Text>
+            <Text style={styles.loadingPercentage}>{Math.floor(trimProgress)}%</Text>
+            
+            {/* Progress Bar Track */}
+            <View style={styles.progressBarTrack}>
+              <View style={[styles.progressBarFill, { width: `${trimProgress}%` }]} />
+            </View>
+            
+            <Text style={styles.loadingProgressSub}>{trimProgressText}</Text>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -981,5 +1066,106 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: 'bold',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  confirmModalContainer: {
+    width: '85%',
+    backgroundColor: '#1C1330',
+    borderRadius: 16,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#332354',
+    alignItems: 'center',
+  },
+  confirmModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  confirmModalSub: {
+    fontSize: 14,
+    color: '#BDB4FF',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  confirmActionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  confirmCancelBtn: {
+    flex: 0.46,
+    backgroundColor: '#251842',
+    borderWidth: 1,
+    borderColor: '#332354',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  confirmCancelText: {
+    color: '#7C7899',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  confirmSaveBtn: {
+    flex: 0.46,
+    backgroundColor: '#FF3B30',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  confirmSaveText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  loadingModalContainer: {
+    width: '80%',
+    backgroundColor: '#1C1330',
+    borderRadius: 16,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#332354',
+    alignItems: 'center',
+  },
+  loadingModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  loadingPercentage: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#8B5CF6',
+    marginVertical: 10,
+  },
+  progressBarTrack: {
+    width: '100%',
+    height: 8,
+    backgroundColor: '#130D22',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#332354',
+    marginBottom: 15,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#8B5CF6',
+    borderRadius: 4,
+  },
+  loadingProgressSub: {
+    fontSize: 13,
+    color: '#7C7899',
+    textAlign: 'center',
   },
 });
