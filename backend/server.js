@@ -121,6 +121,13 @@ app.get('/api/debug', async (req, res) => {
         debugInfo.errors.push(`test search failed: ${e.message}`);
     }
 
+    try {
+        const { stdout } = await execPromise('find /opt/render/project/src -name "*cookies*"');
+        debugInfo.foundCookiesFiles = stdout.trim().split('\n').filter(Boolean);
+    } catch (e) {
+        debugInfo.errors.push(`find cookies failed: ${e.message}`);
+    }
+
     res.json(debugInfo);
 });
 
