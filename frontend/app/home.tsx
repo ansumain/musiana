@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, Alert, TouchableOpacity, TextInput, Dimensions, Image } from 'react-native';
 import { router } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../src/services/api';
 import { useAudio, Music } from '../src/context/AudioContext';
@@ -53,10 +54,16 @@ export default function HomeScreen() {
     addToQueue
   } = useAudio();
 
-  useEffect(() => {
-    fetchMusic();
-    loadUser();
-  }, []);
+  // Re-fetch the music list every time this screen comes into focus.
+  // This ensures that after a trim (or any other mutation), the home screen
+  // always reflects the latest data from the server without needing a full
+  // app reload.
+  useFocusEffect(
+    useCallback(() => {
+      fetchMusic();
+      loadUser();
+    }, [])
+  );
 
   // Cleanup polling interval on unmount
   useEffect(() => {

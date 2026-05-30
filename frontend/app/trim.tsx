@@ -24,7 +24,7 @@ const { width } = Dimensions.get('window');
 const COVER_SIZE = width * 0.35;
 
 export default function TrimScreen() {
-  const { currentlyPlaying, play, pause: contextPause } = useAudio();
+  const { currentlyPlaying, play, pause: contextPause, musicList, setMusicList } = useAudio();
 
   // Parsing initial duration
   const parseDuration = (dStr: string) => {
@@ -325,6 +325,15 @@ export default function TrimScreen() {
           if (sound) {
             await sound.unloadAsync();
           }
+
+          // Immediately patch the in-memory music list/queue so the home
+          // screen grid and mini-player show the updated duration/URL
+          // without waiting for the next fetchMusic() call.
+          const updatedList = musicList.map(s =>
+            s._id === newSong._id ? newSong : s
+          );
+          setMusicList(updatedList);
+
           await play(newSong, true);
           router.back();
         }, 1200);
