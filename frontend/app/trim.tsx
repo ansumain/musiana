@@ -60,6 +60,7 @@ export default function TrimScreen() {
   const trimEndRef = useRef(initialDuration);
   const sliderWidthRef = useRef(0);
   const totalDurationRef = useRef(initialDuration);
+  const playbackPosRef = useRef(0);
 
   // Store absolute drag grant values
   const startValOnGrant = useRef(0);
@@ -80,6 +81,10 @@ export default function TrimScreen() {
   useEffect(() => {
     totalDurationRef.current = totalDuration;
   }, [totalDuration]);
+
+  useEffect(() => {
+    playbackPosRef.current = playbackPos;
+  }, [playbackPos]);
 
   // Load local track on mount
   useEffect(() => {
@@ -238,6 +243,29 @@ export default function TrimScreen() {
     })
   ).current;
 
+  // Draggable PanResponder for Playback Cursor
+  const panResponderCursor = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        stopPlayback();
+        startValOnGrant.current = playbackPosRef.current / 1000;
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (!sliderWidthRef.current) return;
+        const timeDelta = (gestureState.dx / sliderWidthRef.current) * totalDurationRef.current;
+        const targetVal = Math.max(0, Math.min(startValOnGrant.current + timeDelta, totalDurationRef.current));
+        setPlaybackPos(Math.round(targetVal * 1000));
+      },
+      onPanResponderRelease: async () => {
+        if (soundRef.current) {
+          await soundRef.current.setPositionAsync(playbackPosRef.current);
+        }
+      }
+    })
+  ).current;
+
   const handleConfirmTrim = async () => {
     if (!currentlyPlaying) return;
 
@@ -354,7 +382,7 @@ export default function TrimScreen() {
                   ]} 
                 />
                 
-                {/* Playback progress cursor indicator */}
+                {/* Playback progress cursor indicator line */}
                 <View 
                   style={[
                     styles.playbackCursor,
@@ -387,6 +415,18 @@ export default function TrimScreen() {
                 {...panResponderB.panHandlers}
               >
                 <Text style={styles.pointerLabelText}>B</Text>
+              </View>
+
+              {/* Playback Cursor Handle (Draggable) */}
+              <View 
+                style={[
+                  styles.pointerHandleCursor,
+                  { left: `${cursorLeftPct}%` }
+                ]}
+                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                {...panResponderCursor.panHandlers}
+              >
+                <Ionicons name="play" size={10} color="#8B5CF6" style={{ marginLeft: 2 }} />
               </View>
             </View>
 
@@ -711,6 +751,24 @@ const styles = StyleSheet.create({
   pointerHandleB: {
     borderColor: '#FF3B30',
     borderWidth: 2.5,
+  },
+  pointerHandleCursor: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#8B5CF6',
+    borderWidth: 2,
+    position: 'absolute',
+    top: 10, // Centered vertically: container padding 15 + track 12/2 = 21. handle 22/2 = 11. 21 - 11 = 10.
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 3,
+    elevation: 4,
+    transform: [{ translateX: -11 }],
   },
   pointerLabelText: {
     color: '#130D22',
