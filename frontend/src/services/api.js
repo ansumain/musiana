@@ -163,5 +163,21 @@ export const api = {
     });
     
     return response.data;
+  },
+
+  // Trim a song starting from a specific second (Admin only)
+  trimMusic: async (musicId, startTime) => {
+    const token = await AsyncStorage.getItem('token');
+    console.log(`🚀 Admin: Trimming song ${musicId} starting from ${startTime}s...`);
+    
+    const response = await axios.post(`${API_URL}/upload/trim/${musicId}`, {
+      startTime: parseFloat(startTime)
+    }, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    
+    return response.data;
   }
 };

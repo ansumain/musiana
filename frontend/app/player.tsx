@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Dimensions, Image, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Dimensions, Image, Platform, Modal, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAudio } from '../src/context/AudioContext';
+import { api } from '../src/services/api';
 
 const { width } = Dimensions.get('window');
 const ALBUM_ART_SIZE = width * 0.75;
@@ -14,6 +16,7 @@ export default function PlayerScreen() {
     isPlaying, 
     position, 
     duration, 
+    play,
     pause, 
     resume, 
     seek,
@@ -29,12 +32,107 @@ export default function PlayerScreen() {
   const [isSliding, setIsSliding] = useState(false);
   const [slidingValue, setSlidingValue] = useState(0);
 
+  // Admin and Trimming states
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showTrimModal, setShowTrimModal] = useState(false);
+  const [trimStartVal, setTrimStartVal] = useState('');
+  const [trimLoading, setTrimLoading] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+
   // If we are not sliding, sync the sliding value with the actual position
   useEffect(() => {
     if (!isSliding) {
       setSlidingValue(position);
     }
   }, [position, isSliding]);
+
+  useEffect(() => {
+    const checkUserRole = async () => {
+      try {
+        const user = await AsyncStorage.getItem('user');
+        if (user) {
+          const parsed = JSON.parse(user);
+          setIsAdmin(parsed.role === 'admin');
+        }
+      } catch (err) {
+        console.log('Error checking role:', err);
+      }
+    };
+    checkUserRole();
+  }, []);
+
+  const getTrimPreviewUrl = (url: string, offset: number) => {
+    if (!url) return '';
+    const uploadIndex = url.indexOf('/upload/');
+    if (uploadIndex === -1) return url;
+    
+    const prefix = url.slice(0, uploadIndex + 8); // includes '/upload/'
+    const suffix = url.slice(uploadIndex + 8);
+    return `${prefix}so_${offset}/${suffix}`;
+  };
+
+  const handlePreviewTrim = async () => {
+    const offset = parseFloat(trimStartVal);
+    if (isNaN(offset) || offset <= 0) {
+      Alert.alert('Error', 'Please enter a valid start time greater than 0');
+      return;
+    }
+    if (!currentlyPlaying) return;
+
+    const previewUrl = getTrimPreviewUrl(currentlyPlaying.url, offset);
+    console.log('🔊 Playing preview:', previewUrl);
+
+    // Override the currently playing song in the context temporarily
+    const previewSong = {
+      ...currentlyPlaying,
+      url: previewUrl,
+      title: `[Preview] ${currentlyPlaying.title}`
+    };
+
+    setIsPreviewing(true);
+    await play(previewSong, true); // skipHistoryPush = true
+  };
+
+  const handleSaveTrim = async () => {
+    const offset = parseFloat(trimStartVal);
+    if (isNaN(offset) || offset <= 0) {
+      Alert.alert('Error', 'Please enter a valid start time greater than 0');
+      return;
+    }
+    if (!currentlyPlaying) return;
+
+    Alert.alert(
+      '⚠ WARNING: Destructive Overwrite',
+      'This action will permanently overwrite the original audio file on the cloud and database. The original untrimmed track will be lost forever. Are you sure you want to proceed?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Confirm Overwrite',
+          style: 'destructive',
+          onPress: async () => {
+            setTrimLoading(true);
+            try {
+              const response = await api.trimMusic(currentlyPlaying._id, offset);
+              if (response.success) {
+                Alert.alert('Success', 'Audio track trimmed successfully!');
+                const newSong = response.data;
+                // Reload and play the new song
+                await play(newSong, true);
+                setShowTrimModal(false);
+                setIsPreviewing(false);
+                setTrimStartVal('');
+              }
+            } catch (err: any) {
+              console.log('Trimming error:', err);
+              Alert.alert('Error', err.response?.data?.message || 'Failed to trim audio track');
+            } finally {
+              setTrimLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
 
   if (!currentlyPlaying) {
     return (
@@ -138,7 +236,7 @@ export default function PlayerScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Extra buttons (Shuffle, Repeat control) */}
+        {/* Extra buttons (Shuffle, Repeat, Trim control) */}
         <View style={styles.extraControls}>
           <TouchableOpacity onPress={toggleShuffle}>
             <Ionicons 
@@ -147,6 +245,13 @@ export default function PlayerScreen() {
               color={isShuffle ? '#BDB4FF' : '#7C7899'} 
             />
           </TouchableOpacity>
+          
+          {isAdmin && (
+            <TouchableOpacity onPress={() => setShowTrimModal(true)}>
+              <Ionicons name="cut-outline" size={24} color="#BDB4FF" />
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity onPress={toggleLoop}>
             <Ionicons 
               name="repeat" 
@@ -156,6 +261,70 @@ export default function PlayerScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Trimming Modal */}
+      <Modal
+        visible={showTrimModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => {
+          setShowTrimModal(false);
+          setIsPreviewing(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.trimModalContainer}>
+            <Text style={styles.trimModalTitle}>Trim Audio Track</Text>
+            <Text style={styles.trimModalSub}>
+              Enter the starting position in seconds to trim from the beginning of "{currentlyPlaying.title}".
+            </Text>
+            
+            <TextInput
+              style={styles.trimInput}
+              placeholder="Start Time (seconds, e.g. 10)"
+              placeholderTextColor="#7C7899"
+              keyboardType="numeric"
+              value={trimStartVal}
+              onChangeText={setTrimStartVal}
+            />
+
+            <View style={styles.trimActionContainer}>
+              <TouchableOpacity 
+                style={[styles.trimBtn, styles.trimBtnPreview]} 
+                onPress={handlePreviewTrim}
+              >
+                <Ionicons name="play-outline" size={16} color="#fff" style={{ marginRight: 4 }} />
+                <Text style={styles.trimBtnText}>Preview Trim</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.trimBtn, styles.trimBtnSave]} 
+                onPress={handleSaveTrim}
+                disabled={trimLoading}
+              >
+                {trimLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle-outline" size={16} color="#fff" style={{ marginRight: 4 }} />
+                    <Text style={styles.trimBtnText}>Confirm Save</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity 
+              style={styles.trimBtnCancel} 
+              onPress={() => {
+                setShowTrimModal(false);
+                setIsPreviewing(false);
+              }}
+            >
+              <Text style={styles.trimBtnCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -306,7 +475,80 @@ const styles = StyleSheet.create({
   extraControls: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: '30%',
+    width: '45%',
     marginTop: 10,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  trimModalContainer: {
+    width: '85%',
+    backgroundColor: '#1C1330',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#332354',
+    alignItems: 'center',
+  },
+  trimModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 10,
+  },
+  trimModalSub: {
+    fontSize: 13,
+    color: '#7C7899',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 18,
+  },
+  trimInput: {
+    width: '100%',
+    backgroundColor: '#130D22',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#332354',
+    padding: 12,
+    color: '#FFFFFF',
+    fontSize: 15,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  trimActionContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 15,
+  },
+  trimBtn: {
+    flex: 0.48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  trimBtnPreview: {
+    backgroundColor: '#332354',
+  },
+  trimBtnSave: {
+    backgroundColor: '#8B5CF6',
+  },
+  trimBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  trimBtnCancel: {
+    paddingVertical: 10,
+  },
+  trimBtnCancelText: {
+    color: '#7C7899',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });
