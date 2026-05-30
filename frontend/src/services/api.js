@@ -1,15 +1,12 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// IMPORTANT: Change based on your testing device:
-// - Android Emulator: use '10.0.2.2'
-// - iOS Simulator: use 'localhost'
-// - Physical Device: use your computer's IP (find it by running 'ipconfig getifaddr en0' on Mac)
-// - Web Browser: use 'localhost'
+// Backend URL — switches between local dev and production
+// const API_URL = 'http://192.168.29.92:3000/api';  // Local physical device (dev only)
+// const API_URL = 'http://10.0.2.2:3000/api';       // Android Emulator (dev only)
+// const API_URL = 'http://localhost:3000/api';        // iOS Simulator (dev only)
 
-const API_URL = 'http://192.168.29.92:3000/api';  // For Physical Device
-// const API_URL = 'http://10.0.2.2:3000/api';  // For Android Emulator
-// const API_URL = 'http://localhost:3000/api';  // For iOS Simulator or Web
+const API_URL = 'https://musiana-1e9c.onrender.com/api';  // ✅ Production (Render)
 
 export const api = {
   // Register new user
