@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../src/services/api';
 import { useAudio, Music } from '../src/context/AudioContext';
+import Slider from '@react-native-community/slider';
 
 const { width } = Dimensions.get('window');
 const GRID_ITEM_WIDTH = (width - 30) / 2;
@@ -34,6 +35,10 @@ export default function HomeScreen() {
   const [showProfilePassword, setShowProfilePassword] = useState(false);
   const [updatingPassword, setUpdatingPassword] = useState(false);
 
+  // Mini Player Seeker States
+  const [isSliding, setIsSliding] = useState(false);
+  const [slidingValue, setSlidingValue] = useState(0);
+
   // Consume audio playback controls and states from global context
   const { 
     currentlyPlaying, 
@@ -41,8 +46,27 @@ export default function HomeScreen() {
     play, 
     pause, 
     resume,
+    seek,
+    position,
+    duration,
     setMusicList: setContextMusicList
   } = useAudio();
+
+  // Sync the sliding value with the position if we're not actively dragging
+  useEffect(() => {
+    if (!isSliding) {
+      setSlidingValue(position);
+    }
+  }, [position, isSliding]);
+
+  const handleSlidingStart = () => {
+    setIsSliding(true);
+  };
+
+  const handleSlidingComplete = async (value: number) => {
+    await seek(value);
+    setIsSliding(false);
+  };
 
   useEffect(() => {
     fetchMusic();
@@ -518,33 +542,52 @@ export default function HomeScreen() {
 
       {/* Floating Mini Player Bar (Above bottom tab bar) */}
       {currentlyPlaying && (
-        <TouchableOpacity 
-          style={styles.miniPlayerContainer}
-          onPress={() => router.push('/player')}
-        >
-          <View style={styles.miniPlayerArt}>
-            <Ionicons name="musical-notes" size={20} color="#fff" />
+        <View style={styles.miniPlayerContainer}>
+          <TouchableOpacity 
+            style={styles.miniPlayerLeftClickable}
+            onPress={() => router.push('/player')}
+          >
+            <View style={styles.miniPlayerArt}>
+              {currentlyPlaying.imageUrl ? (
+                <Image source={{ uri: currentlyPlaying.imageUrl }} style={styles.miniPlayerCoverImage} />
+              ) : (
+                <Ionicons name="musical-notes" size={20} color="#fff" />
+              )}
+            </View>
+            <View style={styles.miniPlayerTitleContainer}>
+              <Text style={styles.miniPlayerTitle} numberOfLines={1}>
+                {currentlyPlaying.title}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          <View style={styles.miniPlayerSliderContainer}>
+            <Slider
+              style={styles.miniPlayerSlider}
+              minimumValue={0}
+              maximumValue={duration || 1000}
+              value={slidingValue}
+              minimumTrackTintColor="#8B5CF6"
+              maximumTrackTintColor="#332354"
+              thumbTintColor="#8B5CF6"
+              onSlidingStart={handleSlidingStart}
+              onSlidingComplete={handleSlidingComplete}
+              onValueChange={(val) => setSlidingValue(val)}
+            />
           </View>
-          <View style={styles.miniPlayerInfo}>
-            <Text style={styles.miniPlayerTitle} numberOfLines={1}>
-              {currentlyPlaying.title}
-            </Text>
-            <Text style={styles.miniPlayerSubtitle}>
-              {isPlaying ? 'Playing Now' : 'Paused'}
-            </Text>
-          </View>
+
           <TouchableOpacity 
             style={styles.miniPlayerPlayButton}
             onPress={() => isPlaying ? pause() : resume()}
           >
             <Ionicons 
               name={isPlaying ? 'pause' : 'play'} 
-              size={22} 
+              size={20} 
               color="#BDB4FF" 
               style={isPlaying ? null : { marginLeft: 2 }}
             />
           </TouchableOpacity>
-        </TouchableOpacity>
+        </View>
       )}
 
       {/* Fixed Bottom Tab Navigation */}
@@ -715,7 +758,8 @@ const styles = StyleSheet.create({
     right: 15,
     backgroundColor: '#1C1330',
     borderRadius: 12,
-    padding: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     shadowColor: '#000',
@@ -726,6 +770,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#332354',
   },
+  miniPlayerLeftClickable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 0.45,
+    marginRight: 6,
+  },
   miniPlayerArt: {
     width: 40,
     height: 40,
@@ -733,30 +783,40 @@ const styles = StyleSheet.create({
     backgroundColor: '#251842',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 8,
+    overflow: 'hidden',
   },
-  miniPlayerInfo: {
+  miniPlayerCoverImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  miniPlayerTitleContainer: {
     flex: 1,
     justifyContent: 'center',
-    marginRight: 10,
   },
   miniPlayerTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
-  miniPlayerSubtitle: {
-    fontSize: 12,
-    color: '#BDB4FF',
-    marginTop: 2,
+  miniPlayerSliderContainer: {
+    flex: 0.45,
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  miniPlayerSlider: {
+    width: '100%',
+    height: 30,
   },
   miniPlayerPlayButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: '#251842',
     justifyContent: 'center',
     alignItems: 'center',
+    marginLeft: 6,
   },
   tabBar: {
     position: 'absolute',
