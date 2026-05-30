@@ -75,12 +75,19 @@ const downloadFile = (url, dest) => {
 
 const trimAudio = async (req, res) => {
   const { id } = req.params;
-  const { startTime } = req.body; // in seconds, e.g. 10 or 15.5
+  const { startTime, endTime } = req.body; // in seconds, e.g. 10.5 or 120.0
 
   if (startTime === undefined || isNaN(startTime) || startTime < 0) {
     return res.status(400).json({
       success: false,
       message: 'Please provide a valid startTime in seconds'
+    });
+  }
+
+  if (endTime === undefined || isNaN(endTime) || endTime <= startTime) {
+    return res.status(400).json({
+      success: false,
+      message: 'Please provide a valid endTime in seconds that is greater than startTime'
     });
   }
 
@@ -97,7 +104,7 @@ const trimAudio = async (req, res) => {
       });
     }
 
-    console.log(`✂️ Trimming song "${music.title}" starting at ${startTime}s...`);
+    console.log(`✂️ Trimming song "${music.title}" from ${startTime}s to ${endTime}s...`);
 
     // 2. Download original audio from Cloudinary
     console.log(`📥 Downloading original track: ${music.url}`);
@@ -105,7 +112,8 @@ const trimAudio = async (req, res) => {
 
     // 3. Trim using ffmpeg-static
     console.log(`🎬 Running ffmpeg trim command...`);
-    const cmd = `"${ffmpegStatic}" -y -ss ${startTime} -i "${tempInput}" -acodec copy "${tempOutput}"`;
+    const duration = endTime - startTime;
+    const cmd = `"${ffmpegStatic}" -y -ss ${startTime} -t ${duration} -i "${tempInput}" -acodec copy "${tempOutput}"`;
     await execPromise(cmd);
 
     if (!fs.existsSync(tempOutput)) {

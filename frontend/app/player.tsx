@@ -40,12 +40,9 @@ export default function PlayerScreen() {
   // Queue drawer state
   const [showQueueModal, setShowQueueModal] = useState(false);
 
-  // Admin and Trimming states
+  // Admin states
   const [isAdmin, setIsAdmin] = useState(false);
   const [showOptionsModal, setShowOptionsModal] = useState(false);
-  const [showTrimModal, setShowTrimModal] = useState(false);
-  const [trimStartVal, setTrimStartVal] = useState('');
-  const [trimLoading, setTrimLoading] = useState(false);
 
   // If we are not sliding, sync the sliding value with the actual position
   useEffect(() => {
@@ -68,53 +65,6 @@ export default function PlayerScreen() {
     };
     checkUserRole();
   }, []);
-
-  const handleCancelTrim = () => {
-    setShowTrimModal(false);
-    setTrimStartVal('');
-  };
-
-  const handleSaveTrim = async () => {
-    const offset = parseFloat(trimStartVal);
-    if (isNaN(offset) || offset <= 0) {
-      Alert.alert('Error', 'Please enter a valid start time greater than 0');
-      return;
-    }
-    if (!currentlyPlaying) return;
-
-    Alert.alert(
-      '⚠ WARNING: Destructive Overwrite',
-      'This action will permanently overwrite the original audio file on the cloud and database. The original untrimmed track will be lost forever. Are you sure you want to proceed?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm Overwrite',
-          style: 'destructive',
-          onPress: async () => {
-            setTrimLoading(true);
-            try {
-              const response = await api.trimMusic(currentlyPlaying._id, offset);
-              if (response.success) {
-                Alert.alert('Success', 'Audio track trimmed successfully!');
-                const newSong = response.data;
-                
-                setShowTrimModal(false);
-                setTrimStartVal('');
-                
-                // Reload and play the new song
-                await play(newSong, true);
-              }
-            } catch (err: any) {
-              console.log('Trimming error:', err);
-              Alert.alert('Error', err.response?.data?.message || 'Failed to trim audio track');
-            } finally {
-              setTrimLoading(false);
-            }
-          }
-        }
-      ]
-    );
-  };
 
   if (!currentlyPlaying) {
     return (
@@ -248,54 +198,6 @@ export default function PlayerScreen() {
         </View>
       </View>
 
-      {/* Trimming Modal */}
-      <Modal
-        visible={showTrimModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={handleCancelTrim}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.trimModalContainer}>
-            <Text style={styles.trimModalTitle}>Trim Audio Track</Text>
-            <Text style={styles.trimModalSub}>
-              Enter the starting position in seconds to trim from the beginning of "{currentlyPlaying.title}".
-            </Text>
-            
-            <TextInput
-              style={styles.trimInput}
-              placeholder="Start Time (seconds, e.g. 10)"
-              placeholderTextColor="#7C7899"
-              keyboardType="numeric"
-              value={trimStartVal}
-              onChangeText={setTrimStartVal}
-            />
-
-            <TouchableOpacity 
-              style={styles.trimBtnSaveFull} 
-              onPress={handleSaveTrim}
-              disabled={trimLoading}
-            >
-              {trimLoading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="checkmark-circle-outline" size={18} color="#fff" style={{ marginRight: 6 }} />
-                  <Text style={styles.trimBtnText}>Confirm Save</Text>
-                </>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.trimBtnCancel} 
-              onPress={handleCancelTrim}
-            >
-              <Text style={styles.trimBtnCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
       {/* Options Modal (Admin only) */}
       <Modal
         visible={showOptionsModal}
@@ -315,7 +217,7 @@ export default function PlayerScreen() {
               style={styles.optionRow} 
               onPress={() => {
                 setShowOptionsModal(false);
-                setShowTrimModal(true);
+                router.push('/trim');
               }}
             >
               <Ionicons name="cut-outline" size={20} color="#FF3B30" style={{ marginRight: 10 }} />
@@ -408,10 +310,10 @@ export default function PlayerScreen() {
             />
 
             <TouchableOpacity 
-              style={styles.trimBtnCancel} 
+              style={styles.closeQueueBtn} 
               onPress={() => setShowQueueModal(false)}
             >
-              <Text style={styles.trimBtnCancelText}>Close Queue</Text>
+              <Text style={styles.closeQueueBtnText}>Close Queue</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -575,73 +477,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  trimModalContainer: {
-    width: '85%',
-    backgroundColor: '#1C1330',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#332354',
-    alignItems: 'center',
-  },
-  trimModalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 10,
-  },
-  trimModalSub: {
-    fontSize: 13,
-    color: '#7C7899',
-    textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 18,
-  },
-  trimInput: {
-    width: '100%',
-    backgroundColor: '#130D22',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#332354',
-    padding: 12,
-    color: '#FFFFFF',
-    fontSize: 15,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  trimActionContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginBottom: 15,
-  },
-  trimBtn: {
-    flex: 0.48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  trimBtnPreview: {
-    backgroundColor: '#332354',
-  },
-  trimBtnSave: {
-    backgroundColor: '#8B5CF6',
-  },
-  trimBtnText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  trimBtnCancel: {
-    paddingVertical: 10,
-  },
-  trimBtnCancelText: {
-    color: '#7C7899',
-    fontSize: 14,
-    fontWeight: '500',
-  },
+  // Removed old trim styles
   queueModalContainer: {
     width: '90%',
     backgroundColor: '#1C1330',
@@ -722,16 +558,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 20,
   },
-  trimBtnSaveFull: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: '#8B5CF6',
-    marginBottom: 15,
+  closeQueueBtn: {
+    paddingVertical: 10,
   },
+  closeQueueBtnText: {
+    color: '#7C7899',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  // Removed old trimBtnSaveFull style
   optionsOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
