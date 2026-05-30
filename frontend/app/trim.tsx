@@ -9,11 +9,11 @@ import {
   Image, 
   Platform, 
   ActivityIndicator, 
-  Alert 
+  Alert,
+  PanResponder
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Slider from '@react-native-community/slider';
 import { Audio, AVPlaybackStatus } from 'expo-av';
 import { useAudio } from '../src/context/AudioContext';
 import { api } from '../src/services/api';
@@ -47,10 +47,18 @@ export default function TrimScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isTrimming, setIsTrimming] = useState(false);
 
-  // Refs to prevent stale closures in AV callbacks
+  // Width of the slider track bar
+  const [sliderWidth, setSliderWidth] = useState(0);
+
+  // Refs to prevent stale closures in AV callbacks & gesture handlers
   const soundRef = useRef<Audio.Sound | null>(null);
   const trimStartRef = useRef(0);
   const trimEndRef = useRef(initialDuration);
+
+  // Store absolute drag grant values
+  const startValOnGrant = useRef(0);
+  const endValOnGrant = useRef(0);
+  const activePointer = useRef<'A' | 'B' | null>(null);
 
   useEffect(() => {
     trimStartRef.current = trimStart;
@@ -124,6 +132,13 @@ export default function TrimScreen() {
     }
   };
 
+  const stopPlayback = async () => {
+    if (soundRef.current && isPlaying) {
+      await soundRef.current.pauseAsync();
+      setIsPlaying(false);
+    }
+  };
+
   const handlePlayPauseRange = async () => {
     if (!sound) return;
 
@@ -131,11 +146,21 @@ export default function TrimScreen() {
       await sound.pauseAsync();
       setIsPlaying(false);
     } else {
-      // Seek to Point A first to play the selected region
-      await sound.setPositionAsync(trimStart * 1000);
+      // Seek to Point A if the current cursor position is outside the selected range
+      const currentSec = playbackPos / 1000;
+      if (currentSec < trimStart || currentSec >= trimEnd) {
+        await sound.setPositionAsync(trimStart * 1000);
+      }
       await sound.playAsync();
       setIsPlaying(true);
     }
+  };
+
+  const handleStartOver = async () => {
+    if (!sound) return;
+    await sound.setPositionAsync(trimStart * 1000);
+    await sound.playAsync();
+    setIsPlaying(true);
   };
 
   const formatTime = (secondsVal: number) => {
@@ -147,19 +172,71 @@ export default function TrimScreen() {
 
   // Fine-tuning handlers
   const adjustStart = (delta: number) => {
-    const newVal = Math.max(0, Math.min(trimStart + delta, trimEnd - 1));
-    // Round to 2 decimal places to prevent float inaccuracies
+    const newVal = Math.max(0, Math.min(trimStart + delta, trimEnd));
     setTrimStart(Math.round(newVal * 100) / 100);
   };
 
   const adjustEnd = (delta: number) => {
-    const newVal = Math.max(trimStart + 1, Math.min(trimEnd + delta, totalDuration));
-    // Round to 2 decimal places to prevent float inaccuracies
+    const newVal = Math.max(trimStart, Math.min(trimEnd + delta, totalDuration));
     setTrimEnd(Math.round(newVal * 100) / 100);
   };
 
+  // Gesture handler for custom unified dual-pointer timeline slider
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt, gestureState) => {
+        stopPlayback();
+
+        const touchX = evt.nativeEvent.locationX;
+        if (!sliderWidth) return;
+        
+        const pct = Math.max(0, Math.min(touchX / sliderWidth, 1));
+        const touchTime = pct * totalDuration;
+
+        // Choose which pointer to drag based on proximity
+        const distA = Math.abs(touchTime - trimStartRef.current);
+        const distB = Math.abs(touchTime - trimEndRef.current);
+
+        if (distA < distB) {
+          activePointer.current = 'A';
+          setTrimStart(Math.min(touchTime, trimEndRef.current));
+        } else {
+          activePointer.current = 'B';
+          setTrimEnd(Math.max(touchTime, trimStartRef.current));
+        }
+
+        startValOnGrant.current = trimStartRef.current;
+        endValOnGrant.current = trimEndRef.current;
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (!sliderWidth) return;
+
+        // gestureState.dx measures horizontal gesture distance
+        const timeDelta = (gestureState.dx / sliderWidth) * totalDuration;
+
+        if (activePointer.current === 'A') {
+          const targetVal = Math.max(0, Math.min(startValOnGrant.current + timeDelta, trimEndRef.current));
+          setTrimStart(Math.round(targetVal * 100) / 100);
+        } else if (activePointer.current === 'B') {
+          const targetVal = Math.max(trimStartRef.current, Math.min(endValOnGrant.current + timeDelta, totalDuration));
+          setTrimEnd(Math.round(targetVal * 100) / 100);
+        }
+      },
+      onPanResponderRelease: () => {
+        activePointer.current = null;
+      }
+    })
+  ).current;
+
   const handleConfirmTrim = async () => {
     if (!currentlyPlaying) return;
+
+    if (trimEnd - trimStart <= 0) {
+      Alert.alert('Error', 'Trimmed audio length must be greater than 0 seconds.');
+      return;
+    }
 
     Alert.alert(
       '⚠ WARNING: Destructive Overwrite',
@@ -211,20 +288,23 @@ export default function TrimScreen() {
     );
   }
 
-  // Selection percentages for the visual timeline highlight
-  const selectionStartPct = (trimStart / totalDuration) * 100;
-  const selectionEndPct = (trimEnd / totalDuration) * 100;
+  // Selection percentages for the timeline highlight
+  const selectionStartPct = totalDuration > 0 ? (trimStart / totalDuration) * 100 : 0;
+  const selectionEndPct = totalDuration > 0 ? (trimEnd / totalDuration) * 100 : 100;
   const selectionWidthPct = selectionEndPct - selectionStartPct;
+  const cursorLeftPct = totalDuration > 0 ? (playbackPos / (totalDuration * 1000)) * 100 : 0;
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
+      {/* Hide Expo Router's native header */}
+      <Stack.Screen options={{ headerShown: false }} />
+
+      {/* Custom Left-Aligned Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
           <Ionicons name="arrow-back" size={26} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Trim Audio</Text>
-        <View style={styles.headerButtonPlaceholder} />
+        <Text style={styles.headerTitleLeft}>Trim Audio</Text>
       </View>
 
       {isLoading ? (
@@ -249,27 +329,56 @@ export default function TrimScreen() {
             </View>
           </View>
 
-          {/* Visual Timeline Bar */}
+          {/* Unified Timeline & Double Pointer Track */}
           <View style={styles.timelineWrapper}>
-            <Text style={styles.sectionLabel}>VISUAL TIMELINE</Text>
-            <View style={styles.timelineTrack}>
-              {/* Highlight selected range */}
-              <View 
-                style={[
-                  styles.timelineSelection, 
-                  { left: `${selectionStartPct}%`, width: `${selectionWidthPct}%` }
-                ]} 
-              />
-              {/* Playback progress cursor indicator */}
-              {isPlaying && (
+            <Text style={styles.sectionLabel}>VISUAL TIMELINE & SELECTION</Text>
+            
+            <View 
+              style={styles.trackContainer}
+              onLayout={(e) => setSliderWidth(e.nativeEvent.layout.width)}
+              {...panResponder.panHandlers}
+            >
+              <View style={styles.timelineTrack}>
+                {/* Highlight selected range */}
+                <View 
+                  style={[
+                    styles.timelineSelection, 
+                    { left: `${selectionStartPct}%`, width: `${selectionWidthPct}%` }
+                  ]} 
+                />
+                
+                {/* Playback progress cursor indicator */}
                 <View 
                   style={[
                     styles.playbackCursor,
-                    { left: `${(playbackPos / (totalDuration * 1000)) * 100}%` }
+                    { left: `${cursorLeftPct}%` }
                   ]}
                 />
-              )}
+              </View>
+
+              {/* Pointer Handle A */}
+              <View 
+                style={[
+                  styles.pointerHandle, 
+                  styles.pointerHandleA,
+                  { left: `${selectionStartPct}%` }
+                ]}
+              >
+                <Text style={styles.pointerLabelText}>A</Text>
+              </View>
+
+              {/* Pointer Handle B */}
+              <View 
+                style={[
+                  styles.pointerHandle, 
+                  styles.pointerHandleB,
+                  { left: `${selectionEndPct}%` }
+                ]}
+              >
+                <Text style={styles.pointerLabelText}>B</Text>
+              </View>
             </View>
+
             <View style={styles.timelineLabels}>
               <Text style={styles.timelineLimitLabel}>0:00.00</Text>
               <Text style={styles.timelineLimitLabel}>{formatTime(totalDuration)}</Text>
@@ -277,74 +386,48 @@ export default function TrimScreen() {
           </View>
 
           {/* Adjustments Container */}
-          <View style={styles.controlsContainer}>
+          <View style={styles.adjustmentsContainer}>
             
             {/* START TRIM (Point A) */}
-            <View style={styles.controlSection}>
-              <View style={styles.labelRow}>
-                <Text style={styles.controlTitle}>Point A (Start Cutting Point)</Text>
-                <Text style={styles.timeValueText}>{formatTime(trimStart)}</Text>
+            <View style={styles.adjustSection}>
+              <View style={styles.adjustLabelRow}>
+                <Text style={styles.adjustTitle}>Pointer A (Start Cut)</Text>
+                <Text style={styles.adjustValue}>{formatTime(trimStart)}</Text>
               </View>
-              
-              <Slider
-                style={styles.slider}
-                minimumValue={0}
-                maximumValue={totalDuration}
-                value={trimStart}
-                onValueChange={(val) => setTrimStart(Math.min(val, trimEnd - 1))}
-                minimumTrackTintColor="#332354"
-                maximumTrackTintColor="#8B5CF6"
-                thumbTintColor="#BDB4FF"
-              />
-
-              {/* Fine Tuning Start */}
               <View style={styles.fineTuneRow}>
-                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustStart(-1.0)}>
-                  <Text style={styles.fineBtnText}>-1.0s</Text>
+                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustStart(-0.5)}>
+                  <Text style={styles.fineBtnText}>-0.5s</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustStart(-0.1)}>
-                  <Text style={styles.fineBtnText}>-0.1s</Text>
+                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustStart(-0.01)}>
+                  <Text style={styles.fineBtnText}>-0.01s</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustStart(0.1)}>
-                  <Text style={styles.fineBtnText}>+0.1s</Text>
+                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustStart(0.01)}>
+                  <Text style={styles.fineBtnText}>+0.01s</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustStart(1.0)}>
-                  <Text style={styles.fineBtnText}>+1.0s</Text>
+                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustStart(0.5)}>
+                  <Text style={styles.fineBtnText}>+0.5s</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
             {/* END TRIM (Point B) */}
-            <View style={styles.controlSection}>
-              <View style={styles.labelRow}>
-                <Text style={styles.controlTitle}>Point B (End Cutting Point)</Text>
-                <Text style={styles.timeValueText}>{formatTime(trimEnd)}</Text>
+            <View style={styles.adjustSection}>
+              <View style={styles.adjustLabelRow}>
+                <Text style={styles.adjustTitle}>Pointer B (End Cut)</Text>
+                <Text style={styles.adjustValue}>{formatTime(trimEnd)}</Text>
               </View>
-              
-              <Slider
-                style={styles.slider}
-                minimumValue={0}
-                maximumValue={totalDuration}
-                value={trimEnd}
-                onValueChange={(val) => setTrimEnd(Math.max(val, trimStart + 1))}
-                minimumTrackTintColor="#8B5CF6"
-                maximumTrackTintColor="#332354"
-                thumbTintColor="#BDB4FF"
-              />
-
-              {/* Fine Tuning End */}
               <View style={styles.fineTuneRow}>
-                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustEnd(-1.0)}>
-                  <Text style={styles.fineBtnText}>-1.0s</Text>
+                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustEnd(-0.5)}>
+                  <Text style={styles.fineBtnText}>-0.5s</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustEnd(-0.1)}>
-                  <Text style={styles.fineBtnText}>-0.1s</Text>
+                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustEnd(-0.01)}>
+                  <Text style={styles.fineBtnText}>-0.01s</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustEnd(0.1)}>
-                  <Text style={styles.fineBtnText}>+0.1s</Text>
+                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustEnd(0.01)}>
+                  <Text style={styles.fineBtnText}>+0.01s</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustEnd(1.0)}>
-                  <Text style={styles.fineBtnText}>+1.0s</Text>
+                <TouchableOpacity style={styles.fineBtn} onPress={() => adjustEnd(0.5)}>
+                  <Text style={styles.fineBtnText}>+0.5s</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -353,20 +436,37 @@ export default function TrimScreen() {
 
           {/* Local Range Verification Player */}
           <View style={styles.previewSection}>
-            <TouchableOpacity 
-              style={[styles.previewPlayBtn, isPlaying && styles.previewPlayingBtn]} 
-              onPress={handlePlayPauseRange}
-            >
-              <Ionicons 
-                name={isPlaying ? "pause" : "play"} 
-                size={22} 
-                color="#fff" 
-                style={{ marginRight: 6 }} 
-              />
-              <Text style={styles.previewPlayText}>
-                {isPlaying ? "Pause Range Preview" : "Play Selected Range"}
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.previewButtonsRow}>
+              <TouchableOpacity 
+                style={[styles.previewPlayBtn, isPlaying && styles.previewPlayingBtn]} 
+                onPress={handlePlayPauseRange}
+              >
+                <Ionicons 
+                  name={isPlaying ? "pause" : "play"} 
+                  size={20} 
+                  color="#fff" 
+                  style={{ marginRight: 6 }} 
+                />
+                <Text style={styles.previewPlayText}>
+                  {isPlaying ? "Pause" : "Play"}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.startOverBtn} 
+                onPress={handleStartOver}
+              >
+                <Ionicons 
+                  name="reload" 
+                  size={18} 
+                  color="#BDB4FF" 
+                  style={{ marginRight: 6 }} 
+                />
+                <Text style={styles.startOverBtnText}>
+                  Start Over
+                </Text>
+              </TouchableOpacity>
+            </View>
             <Text style={styles.previewMeta}>
               Selected Segment: {formatTime(trimEnd - trimStart)}
             </Text>
@@ -443,7 +543,6 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 15,
     paddingTop: Platform.OS === 'ios' ? 15 : 45,
@@ -453,13 +552,11 @@ const styles = StyleSheet.create({
   },
   headerButton: {
     padding: 5,
+    marginRight: 10,
   },
-  headerButtonPlaceholder: {
-    width: 32,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+  headerTitleLeft: {
+    fontSize: 20,
+    fontWeight: 'bold',
     color: '#FFFFFF',
   },
   content: {
@@ -504,7 +601,7 @@ const styles = StyleSheet.create({
     color: '#BDB4FF',
   },
   timelineWrapper: {
-    marginVertical: 15,
+    marginVertical: 10,
   },
   sectionLabel: {
     fontSize: 11,
@@ -512,6 +609,12 @@ const styles = StyleSheet.create({
     color: '#7C7899',
     marginBottom: 8,
     letterSpacing: 1,
+  },
+  trackContainer: {
+    paddingVertical: 15,
+    width: '100%',
+    position: 'relative',
+    justifyContent: 'center',
   },
   timelineTrack: {
     height: 12,
@@ -540,55 +643,80 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.8,
     shadowRadius: 2,
   },
+  pointerHandle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#BDB4FF',
+    position: 'absolute',
+    top: 7, // Centered vertically over the track (15 padding + 12/2 height = 21. handle 28/2 = 14. 21 - 14 = 7.)
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 3,
+    elevation: 4,
+    transform: [{ translateX: -14 }],
+  },
+  pointerHandleA: {
+    borderColor: '#8B5CF6',
+    borderWidth: 2.5,
+  },
+  pointerHandleB: {
+    borderColor: '#FF3B30',
+    borderWidth: 2.5,
+  },
+  pointerLabelText: {
+    color: '#130D22',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
   timelineLabels: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 6,
+    marginTop: 2,
   },
   timelineLimitLabel: {
     fontSize: 12,
     color: '#7C7899',
     fontWeight: '500',
   },
-  controlsContainer: {
+  adjustmentsContainer: {
     flex: 1,
     justifyContent: 'center',
   },
-  controlSection: {
-    marginBottom: 20,
+  adjustSection: {
+    marginBottom: 16,
   },
-  labelRow: {
+  adjustLabelRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 6,
   },
-  controlTitle: {
+  adjustTitle: {
     fontSize: 14,
     fontWeight: '600',
     color: '#BDB4FF',
   },
-  timeValueText: {
+  adjustValue: {
     fontSize: 14,
     fontWeight: 'bold',
     color: '#FFFFFF',
     fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
   },
-  slider: {
-    width: '100%',
-    height: 30,
-  },
   fineTuneRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 8,
+    marginTop: 4,
   },
   fineBtn: {
     backgroundColor: '#251842',
     borderWidth: 1,
     borderColor: '#332354',
     borderRadius: 6,
-    paddingVertical: 6,
+    paddingVertical: 8,
     flex: 0.23,
     alignItems: 'center',
   },
@@ -604,16 +732,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#332354',
     padding: 15,
-    marginVertical: 15,
+    marginVertical: 10,
+  },
+  previewButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 8,
   },
   previewPlayBtn: {
+    flex: 0.48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#8B5CF6',
     borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
+    paddingVertical: 12,
     shadowColor: '#8B5CF6',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
@@ -629,10 +763,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
   },
+  startOverBtn: {
+    flex: 0.48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#251842',
+    borderWidth: 1,
+    borderColor: '#332354',
+    borderRadius: 8,
+    paddingVertical: 12,
+  },
+  startOverBtnText: {
+    color: '#BDB4FF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
   previewMeta: {
     fontSize: 12,
     color: '#7C7899',
-    marginTop: 10,
+    marginTop: 4,
     fontWeight: '500',
   },
   actionRow: {
