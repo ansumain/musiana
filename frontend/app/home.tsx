@@ -68,6 +68,14 @@ export default function HomeScreen() {
     setIsSliding(false);
   };
 
+  const formatTime = (millis: number) => {
+    if (isNaN(millis) || millis === null) return '0:00';
+    const totalSeconds = Math.floor(millis / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+  };
+
   useEffect(() => {
     fetchMusic();
     loadUser();
@@ -543,25 +551,41 @@ export default function HomeScreen() {
       {/* Floating Mini Player Bar (Above bottom tab bar) */}
       {currentlyPlaying && (
         <View style={styles.miniPlayerContainer}>
-          <TouchableOpacity 
-            style={styles.miniPlayerLeftClickable}
-            onPress={() => router.push('/player')}
-          >
-            <View style={styles.miniPlayerArt}>
-              {currentlyPlaying.imageUrl ? (
-                <Image source={{ uri: currentlyPlaying.imageUrl }} style={styles.miniPlayerCoverImage} />
-              ) : (
-                <Ionicons name="musical-notes" size={20} color="#fff" />
-              )}
-            </View>
-            <View style={styles.miniPlayerTitleContainer}>
-              <Text style={styles.miniPlayerTitle} numberOfLines={1}>
-                {currentlyPlaying.title}
-              </Text>
-            </View>
-          </TouchableOpacity>
+          {/* Top Row: Art, Title, Play/Pause Button */}
+          <View style={styles.miniPlayerTopRow}>
+            <TouchableOpacity 
+              style={styles.miniPlayerLeftClickable}
+              onPress={() => router.push('/player')}
+            >
+              <View style={styles.miniPlayerArt}>
+                {currentlyPlaying.imageUrl ? (
+                  <Image source={{ uri: currentlyPlaying.imageUrl }} style={styles.miniPlayerCoverImage} />
+                ) : (
+                  <Ionicons name="musical-notes" size={20} color="#fff" />
+                )}
+              </View>
+              <View style={styles.miniPlayerTitleContainer}>
+                <Text style={styles.miniPlayerTitle} numberOfLines={1}>
+                  {currentlyPlaying.title}
+                </Text>
+              </View>
+            </TouchableOpacity>
 
-          <View style={styles.miniPlayerSliderContainer}>
+            <TouchableOpacity 
+              style={styles.miniPlayerPlayButton}
+              onPress={() => isPlaying ? pause() : resume()}
+            >
+              <Ionicons 
+                name={isPlaying ? 'pause' : 'play'} 
+                size={18} 
+                color="#BDB4FF" 
+                style={isPlaying ? null : { marginLeft: 2 }}
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Bottom Row: Full-width Slider and Timestamps */}
+          <View style={styles.miniPlayerBottomRow}>
             <Slider
               style={styles.miniPlayerSlider}
               minimumValue={0}
@@ -574,19 +598,11 @@ export default function HomeScreen() {
               onSlidingComplete={handleSlidingComplete}
               onValueChange={(val) => setSlidingValue(val)}
             />
+            <View style={styles.miniPlayerTimeContainer}>
+              <Text style={styles.miniPlayerTimeText}>{formatTime(slidingValue)}</Text>
+              <Text style={styles.miniPlayerTimeText}>{formatTime(duration)}</Text>
+            </View>
           </View>
-
-          <TouchableOpacity 
-            style={styles.miniPlayerPlayButton}
-            onPress={() => isPlaying ? pause() : resume()}
-          >
-            <Ionicons 
-              name={isPlaying ? 'pause' : 'play'} 
-              size={20} 
-              color="#BDB4FF" 
-              style={isPlaying ? null : { marginLeft: 2 }}
-            />
-          </TouchableOpacity>
         </View>
       )}
 
@@ -758,10 +774,8 @@ const styles = StyleSheet.create({
     right: 15,
     backgroundColor: '#1C1330',
     borderRadius: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
+    padding: 10,
+    flexDirection: 'column',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
@@ -770,20 +784,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#332354',
   },
+  miniPlayerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 6,
+  },
   miniPlayerLeftClickable: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 0.45,
-    marginRight: 6,
+    flex: 1,
+    marginRight: 10,
   },
   miniPlayerArt: {
-    width: 40,
-    height: 40,
+    width: 36,
+    height: 36,
     borderRadius: 6,
     backgroundColor: '#251842',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 8,
+    marginRight: 10,
     overflow: 'hidden',
   },
   miniPlayerCoverImage: {
@@ -800,23 +820,33 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
-  miniPlayerSliderContainer: {
-    flex: 0.45,
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  miniPlayerSlider: {
-    width: '100%',
-    height: 30,
-  },
   miniPlayerPlayButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: '#251842',
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 6,
+  },
+  miniPlayerBottomRow: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  miniPlayerSlider: {
+    width: '102%',
+    height: 20,
+  },
+  miniPlayerTimeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '98%',
+    marginTop: 2,
+  },
+  miniPlayerTimeText: {
+    fontSize: 10,
+    color: '#7C7899',
+    fontWeight: '500',
   },
   tabBar: {
     position: 'absolute',
