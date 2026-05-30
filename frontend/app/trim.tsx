@@ -275,37 +275,35 @@ export default function TrimScreen() {
 
   const startProgressSimulation = () => {
     setTrimProgress(0);
-    setTrimProgressText('Connecting with server...');
+    setTrimProgressText('Trimming track... This may take a while. Approx. 10 seconds remaining');
     
+    const totalEstSeconds = 10;
     const interval = setInterval(() => {
       setTrimProgress((prev) => {
         if (prev >= 98) {
           clearInterval(interval);
+          setTrimProgressText('Trimming track... This may take a while. Approx. 1 second remaining');
           return 98;
         }
         
-        let step = 1.2;
+        let step = 0.98;
         let nextVal = prev + step;
         
-        if (nextVal < 25) {
-          setTrimProgressText('Downloading audio from Cloudinary...');
-        } else if (nextVal < 55) {
-          setTrimProgressText('Trimming audio segment with FFmpeg...');
-        } else if (nextVal < 85) {
-          setTrimProgressText('Uploading trimmed segment back...');
-        } else {
-          setTrimProgressText('Saving track metadata to Database...');
-        }
+        const secondsRemaining = Math.max(1, Math.ceil(totalEstSeconds - (nextVal / 98) * totalEstSeconds));
+        setTrimProgressText(`Trimming track... This may take a while. Approx. ${secondsRemaining} seconds remaining`);
         
         return Math.min(nextVal, 98);
       });
-    }, 70);
+    }, 100);
     
     return interval;
   };
 
   const executeTrim = async () => {
     if (!currentlyPlaying) return;
+    
+    // Pause any active verification preview playback first
+    await stopPlayback();
     
     setShowConfirmModal(false);
     setShowLoadingModal(true);
