@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Dimensions, Image, Platform, Modal, TextInput, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Dimensions, Image, Platform, Modal, TextInput, Alert, ActivityIndicator, FlatList } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
@@ -25,12 +25,20 @@ export default function PlayerScreen() {
     toggleShuffle,
     toggleLoop,
     playNext,
-    playPrevious
+    playPrevious,
+    queue,
+    currentIndex,
+    removeFromQueue,
+    reorderQueue,
+    clearQueue
   } = useAudio();
 
   // Local state to track sliding position, so it doesn't stutter while dragging
   const [isSliding, setIsSliding] = useState(false);
   const [slidingValue, setSlidingValue] = useState(0);
+
+  // Queue drawer state
+  const [showQueueModal, setShowQueueModal] = useState(false);
 
   // Admin and Trimming states
   const [isAdmin, setIsAdmin] = useState(false);
@@ -172,7 +180,9 @@ export default function PlayerScreen() {
           <Ionicons name="chevron-down" size={28} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Now Playing</Text>
-        <View style={styles.headerButtonPlaceholder} />
+        <TouchableOpacity onPress={() => setShowQueueModal(true)} style={styles.headerButton}>
+          <Ionicons name="list" size={26} color="#fff" />
+        </TouchableOpacity>
       </View>
 
       {/* Album Art Cover */}
@@ -321,6 +331,91 @@ export default function PlayerScreen() {
               }}
             >
               <Text style={styles.trimBtnCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Queue List Drawer Modal */}
+      <Modal
+        visible={showQueueModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowQueueModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.queueModalContainer}>
+            <View style={styles.queueHeaderRow}>
+              <Text style={styles.queueModalTitle}>Play Queue</Text>
+              <TouchableOpacity onPress={clearQueue} style={styles.clearQueueBtn}>
+                <Text style={styles.clearQueueBtnText}>Clear All</Text>
+              </TouchableOpacity>
+            </View>
+
+            <FlatList
+              data={queue}
+              keyExtractor={(item, idx) => `${item._id}-${idx}`}
+              contentContainerStyle={{ paddingBottom: 20 }}
+              style={{ width: '100%', maxHeight: Dimensions.get('window').height * 0.45 }}
+              renderItem={({ item, index }) => {
+                const isCurrent = index === currentIndex;
+                const isUpcoming = index > currentIndex;
+
+                if (!isCurrent && !isUpcoming) return null; // hide past songs
+
+                return (
+                  <View style={[styles.queueItem, isCurrent && styles.queueItemCurrent]}>
+                    <View style={styles.queueItemInfo}>
+                      <Text style={styles.queueItemTitle} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      {isCurrent && <Text style={styles.nowPlayingBadge}>NOW PLAYING</Text>}
+                    </View>
+
+                    {isUpcoming && (
+                      <View style={styles.queueItemActions}>
+                        {/* Move Up */}
+                        {index > currentIndex + 1 && (
+                          <TouchableOpacity 
+                            style={styles.queueActionBtn}
+                            onPress={() => reorderQueue(index, index - 1)}
+                          >
+                            <Ionicons name="arrow-up" size={18} color="#BDB4FF" />
+                          </TouchableOpacity>
+                        )}
+                        
+                        {/* Move Down */}
+                        {index < queue.length - 1 && (
+                          <TouchableOpacity 
+                            style={styles.queueActionBtn}
+                            onPress={() => reorderQueue(index, index + 1)}
+                          >
+                            <Ionicons name="arrow-down" size={18} color="#BDB4FF" />
+                          </TouchableOpacity>
+                        )}
+
+                        {/* Remove */}
+                        <TouchableOpacity 
+                          style={styles.queueActionBtn}
+                          onPress={() => removeFromQueue(index)}
+                        >
+                          <Ionicons name="trash-outline" size={18} color="#FF3B30" />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                );
+              }}
+              ListEmptyComponent={
+                <Text style={styles.emptyQueueText}>Queue is empty</Text>
+              }
+            />
+
+            <TouchableOpacity 
+              style={styles.trimBtnCancel} 
+              onPress={() => setShowQueueModal(false)}
+            >
+              <Text style={styles.trimBtnCancelText}>Close Queue</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -550,5 +645,85 @@ const styles = StyleSheet.create({
     color: '#7C7899',
     fontSize: 14,
     fontWeight: '500',
+  },
+  queueModalContainer: {
+    width: '90%',
+    backgroundColor: '#1C1330',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#332354',
+    maxHeight: '80%',
+    alignItems: 'center',
+  },
+  queueHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#332354',
+    paddingBottom: 10,
+  },
+  queueModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  clearQueueBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: '#251842',
+    borderRadius: 4,
+  },
+  clearQueueBtnText: {
+    color: '#FF3B30',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  queueItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#251842',
+    width: '100%',
+  },
+  queueItemCurrent: {
+    backgroundColor: '#251842',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    borderBottomWidth: 0,
+  },
+  queueItemInfo: {
+    flex: 1,
+    marginRight: 10,
+  },
+  queueItemTitle: {
+    fontSize: 14,
+    color: '#FFFFFF',
+    fontWeight: '500',
+  },
+  nowPlayingBadge: {
+    fontSize: 9,
+    color: '#8B5CF6',
+    fontWeight: 'bold',
+    marginTop: 4,
+  },
+  queueItemActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  queueActionBtn: {
+    padding: 6,
+    marginLeft: 6,
+  },
+  emptyQueueText: {
+    fontSize: 14,
+    color: '#7C7899',
+    textAlign: 'center',
+    marginTop: 20,
   },
 });

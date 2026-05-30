@@ -49,7 +49,8 @@ export default function HomeScreen() {
     seek,
     position,
     duration,
-    setMusicList: setContextMusicList
+    setMusicList: setContextMusicList,
+    addToQueue
   } = useAudio();
 
   useEffect(() => {
@@ -350,7 +351,15 @@ export default function HomeScreen() {
         </View>
         <View style={styles.gridInfo}>
           <Text style={styles.gridTitle} numberOfLines={1}>{item.title}</Text>
-          <Text style={styles.gridDuration}>⏱ {item.duration}</Text>
+          <View style={styles.gridDetailsRow}>
+            <Text style={styles.gridDuration}>⏱ {item.duration}</Text>
+            <TouchableOpacity 
+              style={styles.gridQueueButton}
+              onPress={() => addToQueue(item)}
+            >
+              <Ionicons name="add-circle-outline" size={18} color="#BDB4FF" />
+            </TouchableOpacity>
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -801,6 +810,15 @@ const styles = StyleSheet.create({
   gridDuration: {
     fontSize: 12,
     color: '#7C7899',
+  },
+  gridDetailsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 2,
+  },
+  gridQueueButton: {
+    padding: 2,
   },
   emptyContainer: {
     flex: 1,

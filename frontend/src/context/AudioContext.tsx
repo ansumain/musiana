@@ -26,6 +26,14 @@ interface AudioContextProps {
   toggleLoop: () => void;
   playNext: () => Promise<void>;
   playPrevious: () => Promise<void>;
+  
+  // Queue extensions
+  queue: Music[];
+  currentIndex: number;
+  addToQueue: (song: Music) => void;
+  removeFromQueue: (index: number) => void;
+  reorderQueue: (fromIndex: number, toIndex: number) => void;
+  clearQueue: () => void;
 }
 
 const AudioContext = createContext<AudioContextProps | undefined>(undefined);
@@ -43,6 +51,10 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isLoop, setIsLoop] = useState(false);
   const [playbackHistory, setPlaybackHistoryState] = useState<Music[]>([]);
 
+  // Stateful Queue States
+  const [queue, setQueueState] = useState<Music[]>([]);
+  const [currentIndex, setCurrentIndexState] = useState<number>(-1);
+
   // Refs to avoid stale React closures inside AVPlayback callbacks
   const soundRef = useRef<Audio.Sound | null>(null);
   const musicListRef = useRef<Music[]>([]);
@@ -51,6 +63,9 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const isLoopRef = useRef<boolean>(false);
   const playbackHistoryRef = useRef<Music[]>([]);
   const currentLoadIdRef = useRef<number>(0);
+  
+  const queueRef = useRef<Music[]>([]);
+  const currentIndexRef = useRef<number>(-1);
 
   // Sync state reference variables
   useEffect(() => {
@@ -66,9 +81,78 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
   }, []);
 
+  const setQueue = (newQueue: Music[]) => {
+    setQueueState(newQueue);
+    queueRef.current = newQueue;
+  };
+
+  const setCurrentIndex = (index: number) => {
+    setCurrentIndexState(index);
+    currentIndexRef.current = index;
+  };
+
   const setMusicList = (list: Music[]) => {
     setMusicListState(list);
     musicListRef.current = list;
+    
+    // Auto-populate queue with library list if queue is empty
+    if (queueRef.current.length === 0) {
+      setQueue(list);
+    }
+  };
+
+  const addToQueue = (song: Music) => {
+    const newQueue = [...queueRef.current];
+    const currentIdx = currentIndexRef.current;
+    
+    // Insert song right after the current index so it plays next
+    newQueue.splice(currentIdx + 1, 0, song);
+    setQueue(newQueue);
+    console.log('➕ Queue: Added track to play next:', song.title);
+  };
+
+  const removeFromQueue = (index: number) => {
+    const newQueue = [...queueRef.current];
+    if (index < 0 || index >= newQueue.length) return;
+
+    newQueue.splice(index, 1);
+
+    let nextIdx = currentIndexRef.current;
+    if (index < currentIndexRef.current) {
+      nextIdx -= 1;
+    } else if (index === currentIndexRef.current) {
+      nextIdx = Math.min(nextIdx, newQueue.length - 1);
+    }
+
+    setQueue(newQueue);
+    setCurrentIndex(nextIdx);
+  };
+
+  const reorderQueue = (fromIndex: number, toIndex: number) => {
+    const newQueue = [...queueRef.current];
+    if (fromIndex < 0 || fromIndex >= newQueue.length || toIndex < 0 || toIndex >= newQueue.length) return;
+
+    const [movedItem] = newQueue.splice(fromIndex, 1);
+    newQueue.splice(toIndex, 0, movedItem);
+
+    let nextIdx = currentIndexRef.current;
+    if (fromIndex === currentIndexRef.current) {
+      nextIdx = toIndex;
+    } else {
+      if (fromIndex < currentIndexRef.current && toIndex >= currentIndexRef.current) {
+        nextIdx -= 1;
+      } else if (fromIndex > currentIndexRef.current && toIndex <= currentIndexRef.current) {
+        nextIdx += 1;
+      }
+    }
+
+    setQueue(newQueue);
+    setCurrentIndex(nextIdx);
+  };
+
+  const clearQueue = () => {
+    setQueue([]);
+    setCurrentIndex(-1);
   };
 
   const toggleShuffle = () => {
@@ -111,6 +195,18 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       console.log('🎵 Context: Playing song', song.title);
       
+      // Update queue tracking index
+      let songIdx = queueRef.current.findIndex(s => s._id === song._id);
+      if (songIdx === -1) {
+        const newQueue = [...queueRef.current];
+        const insertIdx = currentIndexRef.current + 1;
+        newQueue.splice(insertIdx, 0, song);
+        setQueue(newQueue);
+        setCurrentIndex(insertIdx);
+      } else {
+        setCurrentIndex(songIdx);
+      }
+
       // Update playback history if playing a new song (and not going back via previous)
       if (!skipHistoryPush && currentlyPlayingRef.current && currentlyPlayingRef.current._id !== song._id) {
         const updatedHistory = [...playbackHistoryRef.current, currentlyPlayingRef.current];
@@ -194,47 +290,39 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const playNext = async () => {
-    const list = musicListRef.current;
-    const current = currentlyPlayingRef.current;
+    const q = queueRef.current;
+    const currentIdx = currentIndexRef.current;
     
-    if (list.length === 0) return;
+    if (q.length === 0) return;
 
-    if (isLoopRef.current && current) {
-      // Loop current: replay current song
+    if (isLoopRef.current && currentIdx !== -1) {
       await seek(0);
       if (soundRef.current) {
         await soundRef.current.playAsync();
         setIsPlaying(true);
       } else {
-        await play(current);
+        await play(q[currentIdx]);
       }
       return;
     }
 
     if (isShuffleRef.current) {
-      // Shuffle: choose a random song in list
-      const randomIndex = Math.floor(Math.random() * list.length);
-      const nextSong = list[randomIndex];
-      await play(nextSong);
+      const randomIndex = Math.floor(Math.random() * q.length);
+      await play(q[randomIndex]);
     } else {
-      // Linear next in playlist list
-      let nextIndex = 0;
-      if (current) {
-        const currentIndex = list.findIndex(s => s._id === current._id);
-        if (currentIndex !== -1 && currentIndex < list.length - 1) {
-          nextIndex = currentIndex + 1;
-        }
+      let nextIdx = 0;
+      if (currentIdx !== -1 && currentIdx < q.length - 1) {
+        nextIdx = currentIdx + 1;
       }
-      const nextSong = list[nextIndex];
-      await play(nextSong);
+      await play(q[nextIdx]);
     }
   };
 
   const playPrevious = async () => {
-    const current = currentlyPlayingRef.current;
-    if (!current) return;
+    const q = queueRef.current;
+    const currentIdx = currentIndexRef.current;
+    if (q.length === 0) return;
 
-    // Reset song if current progress is >= 3 seconds
     if (position >= 3000) {
       await seek(0);
       if (soundRef.current) {
@@ -246,23 +334,17 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const history = playbackHistoryRef.current;
     if (history.length > 0) {
-      // Go back to the previously played song in history stack
       const prevSong = history[history.length - 1];
       const updatedHistory = history.slice(0, -1);
       setPlaybackHistoryState(updatedHistory);
       playbackHistoryRef.current = updatedHistory;
-      await play(prevSong, true); // skipHistoryPush = true
+      await play(prevSong, true);
     } else {
-      // No history, fallback to linear previous in musicList
-      const list = musicListRef.current;
-      if (list.length === 0) return;
-      let prevIndex = list.length - 1;
-      const currentIndex = list.findIndex(s => s._id === current._id);
-      if (currentIndex > 0) {
-        prevIndex = currentIndex - 1;
+      let prevIdx = q.length - 1;
+      if (currentIdx > 0) {
+        prevIdx = currentIdx - 1;
       }
-      const prevSong = list[prevIndex];
-      await play(prevSong, true); // skipHistoryPush = true
+      await play(q[prevIdx], true);
     }
   };
 
@@ -285,6 +367,12 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         toggleLoop,
         playNext,
         playPrevious,
+        queue,
+        currentIndex,
+        addToQueue,
+        removeFromQueue,
+        reorderQueue,
+        clearQueue,
       }}
     >
       {children}
