@@ -50,6 +50,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const isShuffleRef = useRef<boolean>(false);
   const isLoopRef = useRef<boolean>(false);
   const playbackHistoryRef = useRef<Music[]>([]);
+  const currentLoadIdRef = useRef<number>(0);
 
   // Sync state reference variables
   useEffect(() => {
@@ -104,6 +105,9 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const play = async (song: Music, skipHistoryPush = false) => {
+    // Increment load ID to track this specific playback request
+    const loadId = ++currentLoadIdRef.current;
+
     try {
       console.log('🎵 Context: Playing song', song.title);
       
@@ -134,6 +138,13 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         { shouldPlay: true, progressUpdateIntervalMillis: 500 },
         onPlaybackStatusUpdate
       );
+
+      // Check if a newer play request was triggered while loading this song
+      if (loadId !== currentLoadIdRef.current) {
+        console.log(`⏩ Context: Play request for "${song.title}" was superseded, discarding.`);
+        await newSound.unloadAsync();
+        return;
+      }
 
       setSound(newSound);
       soundRef.current = newSound;
