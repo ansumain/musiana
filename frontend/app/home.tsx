@@ -67,9 +67,7 @@ export default function HomeScreen() {
 
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);
-    if (tab !== 'songs') {
-      handleCancelSearch();
-    }
+    handleCancelSearch();
   };
 
   const startPolling = (query: string) => {
@@ -345,10 +343,7 @@ export default function HomeScreen() {
             </View>
           ) : (
             <>
-              <Text style={styles.headerTitle}>Musiana Library</Text>
-              <TouchableOpacity onPress={() => setIsSearching(true)} style={styles.headerSearchIcon}>
-                <Ionicons name="search" size={24} color="#fff" />
-              </TouchableOpacity>
+              <Text style={styles.headerTitle}>Musiana</Text>
             </>
           )}
         </View>
@@ -555,16 +550,33 @@ export default function HomeScreen() {
       {/* Fixed Bottom Tab Navigation */}
       <View style={styles.tabBar}>
         <TouchableOpacity 
-          style={[styles.tabItem, activeTab === 'songs' && styles.tabItemActive]}
+          style={[styles.tabItem, (activeTab === 'songs' && !isSearching) && styles.tabItemActive]}
           onPress={() => handleTabChange('songs')}
         >
           <Ionicons 
-            name={activeTab === 'songs' ? 'musical-notes' : 'musical-notes-outline'} 
+            name={(activeTab === 'songs' && !isSearching) ? 'musical-notes' : 'musical-notes-outline'} 
             size={22} 
-            color={activeTab === 'songs' ? '#BDB4FF' : '#7C7899'} 
+            color={(activeTab === 'songs' && !isSearching) ? '#BDB4FF' : '#7C7899'} 
           />
-          <Text style={[styles.tabLabel, activeTab === 'songs' && styles.tabLabelActive]}>
+          <Text style={[styles.tabLabel, (activeTab === 'songs' && !isSearching) && styles.tabLabelActive]}>
             Songs
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.tabItem, isSearching && styles.tabItemActive]}
+          onPress={() => {
+            setActiveTab('songs');
+            setIsSearching(true);
+          }}
+        >
+          <Ionicons 
+            name={isSearching ? 'search' : 'search-outline'} 
+            size={22} 
+            color={isSearching ? '#BDB4FF' : '#7C7899'} 
+          />
+          <Text style={[styles.tabLabel, isSearching && styles.tabLabelActive]}>
+            Search
           </Text>
         </TouchableOpacity>
  
