@@ -35,10 +35,6 @@ export default function HomeScreen() {
   const [showProfilePassword, setShowProfilePassword] = useState(false);
   const [updatingPassword, setUpdatingPassword] = useState(false);
 
-  // Mini Player Seeker States
-  const [isSliding, setIsSliding] = useState(false);
-  const [slidingValue, setSlidingValue] = useState(0);
-
   // Consume audio playback controls and states from global context
   const { 
     currentlyPlaying, 
@@ -51,30 +47,6 @@ export default function HomeScreen() {
     duration,
     setMusicList: setContextMusicList
   } = useAudio();
-
-  // Sync the sliding value with the position if we're not actively dragging
-  useEffect(() => {
-    if (!isSliding) {
-      setSlidingValue(position);
-    }
-  }, [position, isSliding]);
-
-  const handleSlidingStart = () => {
-    setIsSliding(true);
-  };
-
-  const handleSlidingComplete = async (value: number) => {
-    await seek(value);
-    setIsSliding(false);
-  };
-
-  const formatTime = (millis: number) => {
-    if (isNaN(millis) || millis === null) return '0:00';
-    const totalSeconds = Math.floor(millis / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
-  };
 
   useEffect(() => {
     fetchMusic();
@@ -551,8 +523,8 @@ export default function HomeScreen() {
       {/* Floating Mini Player Bar (Above bottom tab bar) */}
       {currentlyPlaying && (
         <View style={styles.miniPlayerContainer}>
-          {/* Top Row: Art, Title, Play/Pause Button */}
-          <View style={styles.miniPlayerTopRow}>
+          {/* Main Row: Art, Title, Play/Pause Button */}
+          <View style={styles.miniPlayerMainRow}>
             <TouchableOpacity 
               style={styles.miniPlayerLeftClickable}
               onPress={() => router.push('/player')}
@@ -584,24 +556,14 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Bottom Row: Full-width Slider and Timestamps */}
-          <View style={styles.miniPlayerBottomRow}>
-            <Slider
-              style={styles.miniPlayerSlider}
-              minimumValue={0}
-              maximumValue={duration || 1000}
-              value={slidingValue}
-              minimumTrackTintColor="#8B5CF6"
-              maximumTrackTintColor="#332354"
-              thumbTintColor="#8B5CF6"
-              onSlidingStart={handleSlidingStart}
-              onSlidingComplete={handleSlidingComplete}
-              onValueChange={(val) => setSlidingValue(val)}
+          {/* Bottom: Ultra-thin Progress Line (Visual only, no gestures) */}
+          <View style={styles.miniPlayerProgressBarBg}>
+            <View 
+              style={[
+                styles.miniPlayerProgressBarActive, 
+                { width: `${Math.min(100, Math.max(0, (position / (duration || 1)) * 100))}%` }
+              ]} 
             />
-            <View style={styles.miniPlayerTimeContainer}>
-              <Text style={styles.miniPlayerTimeText}>{formatTime(slidingValue)}</Text>
-              <Text style={styles.miniPlayerTimeText}>{formatTime(duration)}</Text>
-            </View>
           </View>
         </View>
       )}
@@ -774,7 +736,9 @@ const styles = StyleSheet.create({
     right: 15,
     backgroundColor: '#1C1330',
     borderRadius: 12,
-    padding: 10,
+    paddingTop: 10,
+    paddingHorizontal: 12,
+    paddingBottom: 10,
     flexDirection: 'column',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -783,12 +747,12 @@ const styles = StyleSheet.create({
     elevation: 5,
     borderWidth: 1,
     borderColor: '#332354',
+    overflow: 'hidden', // Clips the bottom corners of absolute progress bar
   },
-  miniPlayerTopRow: {
+  miniPlayerMainRow: {
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
-    marginBottom: 6,
   },
   miniPlayerLeftClickable: {
     flexDirection: 'row',
@@ -828,25 +792,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  miniPlayerBottomRow: {
-    width: '100%',
-    alignItems: 'center',
-    marginTop: 2,
+  miniPlayerProgressBarBg: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 3, // Ultra-thin progress line
+    backgroundColor: '#332354',
   },
-  miniPlayerSlider: {
-    width: '102%',
-    height: 20,
-  },
-  miniPlayerTimeContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '98%',
-    marginTop: 2,
-  },
-  miniPlayerTimeText: {
-    fontSize: 10,
-    color: '#7C7899',
-    fontWeight: '500',
+  miniPlayerProgressBarActive: {
+    height: '100%',
+    backgroundColor: '#8B5CF6',
   },
   tabBar: {
     position: 'absolute',
