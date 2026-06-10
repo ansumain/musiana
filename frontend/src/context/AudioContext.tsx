@@ -246,6 +246,20 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               setDuration(progress.duration * 1000);
             }
           }
+
+          // Forcefully sync the active track index to catch transitions missed while in background
+          const activeIndex = TrackPlayer.getActiveMediaItemIndex();
+          if (activeIndex !== undefined && activeIndex !== null && activeIndex !== currentIndexRef.current) {
+            const q = queueRef.current;
+            if (activeIndex >= 0 && activeIndex < q.length) {
+              const matchedSong = q[activeIndex];
+              setCurrentlyPlaying(matchedSong);
+              currentlyPlayingRef.current = matchedSong;
+              setCurrentIndexState(activeIndex);
+              currentIndexRef.current = activeIndex;
+              userAddedCountRef.current = 0;
+            }
+          }
         } catch (e) {
           // ignore
         }
