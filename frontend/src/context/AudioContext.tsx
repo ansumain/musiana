@@ -186,13 +186,30 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         });
         eventListeners.push(activeTrackListener);
 
-        // V5: IsPlayingChanged replaces PlaybackState
+        // V5: IsPlayingChanged replaces PlaybackState for tracking active playing status
         const playbackStateListener = TrackPlayer.addEventListener(Event.IsPlayingChanged, (event: any) => {
           if (active) {
             setIsPlaying(event.playing);
           }
         });
         eventListeners.push(playbackStateListener);
+
+        // V5: PlaybackStateChanged used to track queue end and force loop if native fails
+        const playbackStateChangeListener = TrackPlayer.addEventListener(Event.PlaybackStateChanged, async (event: any) => {
+          if (active && event.state === 'ended') {
+            const currentIdx = currentIndexRef.current;
+            const qLength = queueRef.current.length;
+            if (currentIdx === qLength - 1 && qLength > 0) {
+              try {
+                console.log("Queue ended: Manually looping to start");
+                await TrackPlayer.skip(0);
+              } catch (e) {
+                console.error("Manual loop failed:", e);
+              }
+            }
+          }
+        });
+        eventListeners.push(playbackStateChangeListener);
 
       } catch (err) {
         console.log("⚠️ Native TrackPlayer not available (falling back to Expo AV):", err);
@@ -576,7 +593,15 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       try {
         const TPModule = require('@rntp/player');
         const TrackPlayer = TPModule.default || TPModule;
-        TrackPlayer.skipToNext();
+        
+        if (isShuffleRef.current) {
+          const randomIndex = Math.floor(Math.random() * q.length);
+          await TrackPlayer.skip(randomIndex);
+        } else if (currentIdx === q.length - 1) {
+          await TrackPlayer.skip(0);
+        } else {
+          await TrackPlayer.skipToNext();
+        }
       } catch (e) {
         console.error("TrackPlayer playNext error:", e);
       }
@@ -616,10 +641,14 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const TPModule = require('@rntp/player');
         const TrackPlayer = TPModule.default || TPModule;
         if (position >= 3000) {
-          TrackPlayer.seekTo(0);
+          await TrackPlayer.seekTo(0);
           setPosition(0);
         } else {
-          TrackPlayer.skipToPrevious();
+          if (currentIdx === 0) {
+            await TrackPlayer.skip(q.length - 1);
+          } else {
+            await TrackPlayer.skipToPrevious();
+          }
         }
       } catch (e) {
         console.error("TrackPlayer playPrevious error:", e);

@@ -7,6 +7,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as Haptics from 'expo-haptics';
+import DraggableFlatList, { ScaleDecorator, RenderItemParams } from 'react-native-draggable-flatlist';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useAudio } from '../src/context/AudioContext';
 import { api } from '../src/services/api';
 
@@ -558,64 +560,67 @@ export default function PlayerScreen() {
                 </TouchableOpacity>
               </View>
 
-              <FlatList
-                data={queue}
-                keyExtractor={(item, idx) => `${item._id}-${idx}`}
-                contentContainerStyle={{ paddingBottom: 20 }}
-                style={{ width: '100%', maxHeight: Dimensions.get('window').height * 0.45 }}
-                renderItem={({ item, index }) => {
-                  const isCurrent = index === currentIndex;
-                  const isUpcoming = index > currentIndex;
+              <GestureHandlerRootView style={{ width: '100%', maxHeight: Dimensions.get('window').height * 0.45 }}>
+                <DraggableFlatList
+                  data={queue}
+                  keyExtractor={(item, idx) => `${item._id}-${idx}`}
+                  onDragEnd={({ data, from, to }) => {
+                    // Update native queue mapping using context reorderQueue
+                    reorderQueue(from, to);
+                  }}
+                  contentContainerStyle={{ paddingBottom: 20 }}
+                  style={{ width: '100%', height: '100%' }}
+                  renderItem={({ item, getIndex, drag, isActive }: RenderItemParams<any>) => {
+                    const index = getIndex() || 0;
+                    const isCurrent = index === currentIndex;
+                    const isUpcoming = index > currentIndex;
 
-                  if (!isCurrent && !isUpcoming) return null; // hide past songs
+                    if (!isCurrent && !isUpcoming) return null; // hide past songs
 
-                  return (
-                    <View style={[styles.queueItem, isCurrent && styles.queueItemCurrent]}>
-                      <View style={styles.queueItemInfo}>
-                        <Text style={styles.queueItemTitle} numberOfLines={1}>
-                          {item.title}
-                        </Text>
-                        {isCurrent && <Text style={styles.nowPlayingBadge}>NOW PLAYING</Text>}
-                      </View>
-
-                      {isUpcoming && (
-                        <View style={styles.queueItemActions}>
-                          {/* Move Up */}
-                          {index > currentIndex + 1 && (
-                            <TouchableOpacity 
-                              style={styles.queueActionBtn}
-                              onPress={() => reorderQueue(index, index - 1)}
-                            >
-                              <Ionicons name="arrow-up" size={18} color="#BDB4FF" />
+                    return (
+                      <ScaleDecorator>
+                        <TouchableOpacity
+                          activeOpacity={1}
+                          onLongPress={isUpcoming ? drag : undefined}
+                          disabled={isActive}
+                          style={[
+                            styles.queueItem, 
+                            isCurrent && styles.queueItemCurrent,
+                            isActive && { backgroundColor: '#332354', elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84 }
+                          ]}
+                        >
+                          {isUpcoming && (
+                            <TouchableOpacity style={{ marginRight: 10 }} onPressIn={drag}>
+                              <Ionicons name="reorder-two" size={24} color="#7C7899" />
                             </TouchableOpacity>
                           )}
-                          
-                          {/* Move Down */}
-                          {index < queue.length - 1 && (
-                            <TouchableOpacity 
-                              style={styles.queueActionBtn}
-                              onPress={() => reorderQueue(index, index + 1)}
-                            >
-                              <Ionicons name="arrow-down" size={18} color="#BDB4FF" />
-                            </TouchableOpacity>
-                          )}
+                          <View style={styles.queueItemInfo}>
+                            <Text style={styles.queueItemTitle} numberOfLines={1}>
+                              {item.title}
+                            </Text>
+                            {isCurrent && <Text style={styles.nowPlayingBadge}>NOW PLAYING</Text>}
+                          </View>
 
-                          {/* Remove */}
-                          <TouchableOpacity 
-                            style={styles.queueActionBtn}
-                            onPress={() => removeFromQueue(index)}
-                          >
-                            <Ionicons name="trash-outline" size={18} color="#FF3B30" />
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                    </View>
-                  );
-                }}
-                ListEmptyComponent={
-                  <Text style={styles.emptyQueueText}>Queue is empty</Text>
-                }
-              />
+                          {isUpcoming && (
+                            <View style={styles.queueItemActions}>
+                              {/* Remove */}
+                              <TouchableOpacity 
+                                style={styles.queueActionBtn}
+                                onPress={() => removeFromQueue(index)}
+                              >
+                                <Ionicons name="trash-outline" size={18} color="#FF3B30" />
+                              </TouchableOpacity>
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      </ScaleDecorator>
+                    );
+                  }}
+                  ListEmptyComponent={
+                    <Text style={styles.emptyQueueText}>Queue is empty</Text>
+                  }
+                />
+              </GestureHandlerRootView>
 
               <TouchableOpacity 
                 style={styles.closeQueueBtn} 

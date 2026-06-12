@@ -247,20 +247,22 @@ export default function HomeScreen() {
     };
   }, [pollingIntervalId]);
 
-  // Intercept hardware back button when a playlist is open
-  useEffect(() => {
-    const onBackPress = () => {
-      if (selectedPlaylist) {
-        setSelectedPlaylist(null);
-        return true; // prevent default behavior (app exit)
-      }
-      return false; // follow default behavior
-    };
+  // Intercept hardware back button when a playlist is open, ONLY when this screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        if (selectedPlaylist) {
+          setSelectedPlaylist(null);
+          return true; // prevent default behavior (app exit)
+        }
+        return false; // follow default behavior
+      };
 
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
 
-    return () => backHandler.remove();
-  }, [selectedPlaylist]);
+      return () => backHandler.remove();
+    }, [selectedPlaylist])
+  );
 
   const stopPolling = () => {
     if (pollingIntervalId) {
@@ -853,6 +855,12 @@ export default function HomeScreen() {
 
   const renderPlaylistDetails = () => {
     if (!selectedPlaylist) return null;
+    
+    // Check ownership: if populated from search, check username. If unpopulated (from Library), it's ours.
+    const isOwner = selectedPlaylist.user && typeof selectedPlaylist.user === 'object'
+      ? selectedPlaylist.user.username === user?.username
+      : true;
+
     return (
       <View style={styles.tabContentContainer}>
         <View style={styles.headerPlaylistDetails}>
@@ -862,7 +870,7 @@ export default function HomeScreen() {
           <Text style={styles.headerTitleLeft} numberOfLines={1}>
             {selectedPlaylist.name}
           </Text>
-          {selectedPlaylist.isDefault ? (
+          {selectedPlaylist.isDefault || !isOwner ? (
             <View style={{ width: 10 }} />
           ) : (
             <TouchableOpacity
@@ -877,7 +885,7 @@ export default function HomeScreen() {
         </View>
 
         {/* Inline dropdown for playlist detail header options */}
-        {!selectedPlaylist.isDefault && activeDropdownPlaylistId === selectedPlaylist._id && (
+        {!selectedPlaylist.isDefault && isOwner && activeDropdownPlaylistId === selectedPlaylist._id && (
           <>
             <TouchableOpacity
               style={{
@@ -935,6 +943,7 @@ export default function HomeScreen() {
               <View style={styles.detailsHeaderLeft}>
                 <Text style={styles.detailsMeta}>
                   {selectedPlaylist.isDefault ? 'Default Playlist' : (selectedPlaylist.isPrivate ? 'Private' : 'Public')}
+                  {!isOwner && typeof selectedPlaylist.user === 'object' && ` • By ${selectedPlaylist.user.username}`}
                 </Text>
                 
                 {selectedPlaylist.tags && selectedPlaylist.tags.length > 0 && (
@@ -999,15 +1008,17 @@ export default function HomeScreen() {
                   </View>
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.detailsSongOptionsBtn}
-                  onPress={() => {
-                    setSongToRemove(item);
-                    setShowRemoveSongModal(true);
-                  }}
-                >
-                  <Ionicons name="ellipsis-vertical" size={20} color="#7C7899" />
-                </TouchableOpacity>
+                {isOwner && (
+                  <TouchableOpacity
+                    style={styles.detailsSongOptionsBtn}
+                    onPress={() => {
+                      setSongToRemove(item);
+                      setShowRemoveSongModal(true);
+                    }}
+                  >
+                    <Ionicons name="ellipsis-vertical" size={20} color="#7C7899" />
+                  </TouchableOpacity>
+                )}
               </View>
             );
           }}
@@ -1330,11 +1341,18 @@ export default function HomeScreen() {
           onPress={() => handleOpenPlaylistDetails(item)}
         >
           <View style={[styles.playlistCardIcon, item.isDefault && styles.playlistCardIconDefault]}>
-            <Ionicons 
-              name={item.isDefault ? "heart" : "musical-notes"} 
-              size={28} 
-              color={item.isDefault ? "#FF3B30" : "#BDB4FF"} 
-            />
+            {item.songs && item.songs.length > 0 && item.songs[0].imageUrl && !item.isDefault ? (
+              <Image 
+                source={{ uri: item.songs[0].imageUrl }} 
+                style={{ width: '100%', height: '100%', borderRadius: 10 }} 
+              />
+            ) : (
+              <Ionicons 
+                name={item.isDefault ? "heart" : "musical-notes"} 
+                size={28} 
+                color={item.isDefault ? "#FF3B30" : "#BDB4FF"} 
+              />
+            )}
           </View>
           <View style={styles.playlistCardInfo}>
             <Text style={styles.playlistCardName} numberOfLines={1}>
