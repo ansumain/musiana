@@ -348,6 +348,52 @@ export const api = {
     return response.data;
   },
 
+  // Submit a song request (User)
+  submitSongRequest: async (title, artist = '', note = '') => {
+    const token = await AsyncStorage.getItem('token');
+    console.log('🚀 Submitting song request:', title);
+    const response = await axios.post(`${API_URL}/requests`, { title, artist, note }, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
+  // Get current user's song requests
+  getUserSongRequests: async () => {
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.get(`${API_URL}/requests/my`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
+  // Get all song requests (Admin only)
+  getAllSongRequests: async () => {
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.get(`${API_URL}/requests`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
+  // Update song request status (Admin only)
+  updateSongRequestStatus: async (requestId, status, adminNote = '') => {
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.patch(`${API_URL}/requests/${requestId}`, { status, adminNote }, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
+  // Delete a song request
+  deleteSongRequest: async (requestId) => {
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.delete(`${API_URL}/requests/${requestId}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
   // Expose API URL helper for file downloads
   getApiUrl: () => API_URL
 };

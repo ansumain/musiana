@@ -6,6 +6,7 @@ const uploadRoutes = require('./routes/uploadRoutes')
 const fetchRoutes = require('./routes/fetchRoutes')
 const searchRoutes = require('./routes/searchRoutes')
 const playlistRoutes = require('./routes/playlistRoutes')
+const requestRoutes = require('./routes/requestRoutes')
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,6 +20,7 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/fetch', fetchRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/playlists', playlistRoutes);
+app.use('/api/requests', requestRoutes);
 
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`)

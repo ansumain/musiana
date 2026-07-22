@@ -11,6 +11,7 @@ import DraggableFlatList, { ScaleDecorator, RenderItemParams } from 'react-nativ
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useAudio } from '../src/context/AudioContext';
 import { api } from '../src/services/api';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 const ALBUM_ART_SIZE = width * 0.75;
@@ -122,6 +123,8 @@ export default function PlayerScreen() {
     reorderQueue,
     clearQueue
   } = useAudio();
+
+  const insets = useSafeAreaInsets();
 
   // Local state to track sliding position, so it doesn't stutter while dragging
   const [isSliding, setIsSliding] = useState(false);
@@ -355,7 +358,7 @@ export default function PlayerScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { paddingBottom: Math.max(insets.bottom, 10) }]}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
