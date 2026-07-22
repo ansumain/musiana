@@ -1,8 +1,27 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { router } from 'expo-router';
 
 // const API_URL = 'http://192.168.29.92:3000/api';  // Local backend for Expo Go development
 const API_URL = 'https://musiana-1e9c.onrender.com/api';  // Production (Render)
+
+// Global response interceptor for session expiry (401 Unauthorized)
+axios.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response && error.response.status === 401) {
+      console.log('🔒 401 Unauthorized detected: Clearing auth session and redirecting to login...');
+      await AsyncStorage.removeItem('token');
+      await AsyncStorage.removeItem('user');
+      try {
+        router.replace('/');
+      } catch (e) {
+        // ignore router errors during background calls
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 export const api = {
   // Trigger on-demand download of a song preview (requires authentication)

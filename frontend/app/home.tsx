@@ -1629,6 +1629,15 @@ export default function HomeScreen() {
                 </View>
               )}
 
+              {/* App Info Card */}
+              <View style={[styles.formCard, { alignItems: 'center', paddingVertical: 16 }]}>
+                <Text style={{ color: '#BDB4FF', fontSize: 13, fontWeight: '600' }}>
+                  Musiana v1.0.0
+                </Text>
+                <Text style={{ color: '#7C7899', fontSize: 11, marginTop: 2 }}>
+                  Powered by Expo & Node.js
+                </Text>
+              </View>
 
             </View>
           )}
