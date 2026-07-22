@@ -1,8 +1,27 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { router } from 'expo-router';
 
 // const API_URL = 'http://192.168.29.92:3000/api';  // Local backend for Expo Go development
 const API_URL = 'https://musiana-1e9c.onrender.com/api';  // Production (Render)
+
+// Global response interceptor for session expiry (401 Unauthorized)
+axios.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response && error.response.status === 401) {
+      console.log('🔒 401 Unauthorized detected: Clearing auth session and redirecting to login...');
+      await AsyncStorage.removeItem('token');
+      await AsyncStorage.removeItem('user');
+      try {
+        router.replace('/');
+      } catch (e) {
+        // ignore router errors during background calls
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 export const api = {
   // Trigger on-demand download of a song preview (requires authentication)
@@ -326,6 +345,52 @@ export const api = {
       }
     });
     
+    return response.data;
+  },
+
+  // Submit a song request (User)
+  submitSongRequest: async (title, artist = '', note = '') => {
+    const token = await AsyncStorage.getItem('token');
+    console.log('🚀 Submitting song request:', title);
+    const response = await axios.post(`${API_URL}/requests`, { title, artist, note }, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
+  // Get current user's song requests
+  getUserSongRequests: async () => {
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.get(`${API_URL}/requests/my`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
+  // Get all song requests (Admin only)
+  getAllSongRequests: async () => {
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.get(`${API_URL}/requests`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
+  // Update song request status (Admin only)
+  updateSongRequestStatus: async (requestId, status, adminNote = '') => {
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.patch(`${API_URL}/requests/${requestId}`, { status, adminNote }, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return response.data;
+  },
+
+  // Delete a song request
+  deleteSongRequest: async (requestId) => {
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.delete(`${API_URL}/requests/${requestId}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
     return response.data;
   },
 

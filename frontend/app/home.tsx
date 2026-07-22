@@ -7,6 +7,8 @@ import { api } from '../src/services/api';
 import { useAudio, Music } from '../src/context/AudioContext';
 import Slider from '@react-native-community/slider';
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 const { width } = Dimensions.get('window');
 const GRID_ITEM_WIDTH = (width - 30) / 2;
 
@@ -99,6 +101,7 @@ const MarqueeText = ({ text, style }: { text: string; style: any }) => {
 type TabType = 'songs' | 'profile' | 'playlists';
 
 export default function HomeScreen() {
+  const insets = useSafeAreaInsets();
   const [musicList, setMusicList] = useState<Music[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -106,6 +109,22 @@ export default function HomeScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('songs');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
+
+  // Song Request States
+  const [showSongRequestModal, setShowSongRequestModal] = useState(false);
+  const [requestTitle, setRequestTitle] = useState('');
+  const [requestArtist, setRequestArtist] = useState('');
+  const [requestNote, setRequestNote] = useState('');
+  const [submittingRequest, setSubmittingRequest] = useState(false);
+
+  // User / Admin Request List States
+  const [userRequests, setUserRequests] = useState<any[]>([]);
+  const [adminRequests, setAdminRequests] = useState<any[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [showAdminStatusModal, setShowAdminStatusModal] = useState(false);
+  const [selectedRequest, setSelectedRequest] = useState<any>(null);
+  const [adminNoteInput, setAdminNoteInput] = useState('');
+  const [updatingRequestStatus, setUpdatingRequestStatus] = useState(false);
   
   // Auto-Downloader Search States
   const [searchLoading, setSearchLoading] = useState(false);
@@ -220,10 +239,88 @@ export default function HomeScreen() {
           setSelectedPlaylist(updatedPlaylist);
         }
       }
-    } catch (err) {
-      console.log('Error fetching user playlists:', err);
+    } catch (e) {
+      console.log("Error fetching user playlists:", e);
     } finally {
       setLibraryLoading(false);
+    }
+  };
+
+  const fetchUserRequests = async () => {
+    try {
+      setRequestsLoading(true);
+      const res = await api.getUserSongRequests();
+      if (res.success) {
+        setUserRequests(res.data || []);
+      }
+    } catch (e) {
+      console.log('Error fetching user song requests:', e);
+    } finally {
+      setRequestsLoading(false);
+    }
+  };
+
+  const fetchAdminRequests = async () => {
+    try {
+      setRequestsLoading(true);
+      const res = await api.getAllSongRequests();
+      if (res.success) {
+        setAdminRequests(res.data || []);
+      }
+    } catch (e) {
+      console.log('Error fetching admin song requests:', e);
+    } finally {
+      setRequestsLoading(false);
+    }
+  };
+
+  const handleOpenSongRequest = (prefillTitle = '') => {
+    setRequestTitle(prefillTitle);
+    setRequestArtist('');
+    setRequestNote('');
+    setShowSongRequestModal(true);
+  };
+
+  const handleSubmitSongRequest = async () => {
+    if (!requestTitle.trim()) {
+      showFeedback('Error', 'Song title is required', true);
+      return;
+    }
+    try {
+      setSubmittingRequest(true);
+      const res = await api.submitSongRequest(requestTitle.trim(), requestArtist.trim(), requestNote.trim());
+      if (res.success) {
+        setShowSongRequestModal(false);
+        showFeedback('Success', 'Song request submitted to Admin! Check status in your Profile tab.');
+        fetchUserRequests();
+      } else {
+        showFeedback('Error', res.message || 'Failed to submit request', true);
+      }
+    } catch (e: any) {
+      showFeedback('Error', e.response?.data?.message || 'Failed to submit song request', true);
+    } finally {
+      setSubmittingRequest(false);
+    }
+  };
+
+  const handleUpdateRequestStatus = async (status: 'added' | 'rejected') => {
+    if (!selectedRequest) return;
+    try {
+      setUpdatingRequestStatus(true);
+      const res = await api.updateSongRequestStatus(selectedRequest._id, status, adminNoteInput.trim());
+      if (res.success) {
+        setShowAdminStatusModal(false);
+        setSelectedRequest(null);
+        setAdminNoteInput('');
+        showFeedback('Success', `Request marked as "${status}"!`);
+        fetchAdminRequests();
+      } else {
+        showFeedback('Error', res.message || 'Failed to update request', true);
+      }
+    } catch (e: any) {
+      showFeedback('Error', e.response?.data?.message || 'Failed to update request status', true);
+    } finally {
+      setUpdatingRequestStatus(false);
     }
   };
 
@@ -232,6 +329,8 @@ export default function HomeScreen() {
       fetchMusic();
       loadUser();
       fetchUserPlaylists();
+      fetchUserRequests();
+      fetchAdminRequests();
     }, [selectedPlaylist?._id])
   );
 
@@ -1582,6 +1681,88 @@ export default function HomeScreen() {
                 </TouchableOpacity>
               </View>
 
+              {/* My Song Requests Section (User) */}
+              <View style={styles.formCard}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={styles.formTitle}>My Song Requests</Text>
+                  <TouchableOpacity 
+                    style={styles.requestHeaderBtn}
+                    onPress={() => handleOpenSongRequest('')}
+                  >
+                    <Ionicons name="add-circle" size={18} color="#8B5CF6" style={{ marginRight: 4 }} />
+                    <Text style={styles.requestHeaderBtnText}>New Request</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {requestsLoading && userRequests.length === 0 ? (
+                  <ActivityIndicator size="small" color="#8B5CF6" style={{ marginVertical: 10 }} />
+                ) : userRequests.length === 0 ? (
+                  <Text style={styles.emptyTextSub}>No song requests submitted yet</Text>
+                ) : (
+                  userRequests.map((req) => (
+                    <View key={req._id} style={styles.requestRowItem}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={styles.requestRowTitle} numberOfLines={1}>{req.title}</Text>
+                        {req.artist ? <Text style={styles.requestRowArtist}>{req.artist}</Text> : null}
+                        {req.adminNote ? <Text style={styles.requestRowAdminNote}>Admin Note: &quot;{req.adminNote}&quot;</Text> : null}
+                      </View>
+                      <View style={[
+                        styles.statusBadge,
+                        req.status === 'added' ? styles.statusBadgeAdded : req.status === 'rejected' ? styles.statusBadgeRejected : styles.statusBadgePending
+                      ]}>
+                        <Text style={styles.statusBadgeText}>{req.status.toUpperCase()}</Text>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </View>
+
+              {/* Admin Song Requests Management Section */}
+              {(user?.role === 'admin' || user?.role === 'super-admin') && (
+                <View style={styles.formCard}>
+                  <Text style={styles.formTitle}>Manage User Song Requests</Text>
+
+                  {requestsLoading && adminRequests.length === 0 ? (
+                    <ActivityIndicator size="small" color="#8B5CF6" style={{ marginVertical: 10 }} />
+                  ) : adminRequests.length === 0 ? (
+                    <Text style={styles.emptyTextSub}>No pending user requests</Text>
+                  ) : (
+                    adminRequests.map((req) => (
+                      <View key={req._id} style={styles.adminRequestRowItem}>
+                        <View style={{ flex: 1, marginRight: 8 }}>
+                          <Text style={styles.requestRowTitle} numberOfLines={1}>{req.title}</Text>
+                          <Text style={styles.requestRowMeta}>
+                            By {req.user?.username || 'User'} ({req.user?.email})
+                          </Text>
+                          {req.artist ? <Text style={styles.requestRowArtist}>Artist: {req.artist}</Text> : null}
+                          {req.note ? <Text style={styles.requestRowNote}>Note: &quot;{req.note}&quot;</Text> : null}
+                          {req.adminNote ? <Text style={styles.requestRowAdminNote}>Admin Note: &quot;{req.adminNote}&quot;</Text> : null}
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <View style={[
+                            styles.statusBadge,
+                            req.status === 'added' ? styles.statusBadgeAdded : req.status === 'rejected' ? styles.statusBadgeRejected : styles.statusBadgePending,
+                            { marginBottom: 8 }
+                          ]}>
+                            <Text style={styles.statusBadgeText}>{req.status.toUpperCase()}</Text>
+                          </View>
+                          <TouchableOpacity
+                            style={styles.adminStatusBtn}
+                            onPress={() => {
+                              setSelectedRequest(req);
+                              setAdminNoteInput(req.adminNote || '');
+                              setShowAdminStatusModal(true);
+                            }}
+                          >
+                            <Text style={styles.adminStatusBtnText}>Update</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))
+                  )}
+                </View>
+              )}
+
               {/* Admin User Management Section */}
               {(user?.role === 'admin' || user?.role === 'super-admin') && (
                 <View style={styles.formCard}>
@@ -1629,6 +1810,15 @@ export default function HomeScreen() {
                 </View>
               )}
 
+              {/* App Info Card */}
+              <View style={[styles.formCard, { alignItems: 'center', paddingVertical: 16 }]}>
+                <Text style={{ color: '#BDB4FF', fontSize: 13, fontWeight: '600' }}>
+                  Musiana v1.0.0
+                </Text>
+                <Text style={{ color: '#7C7899', fontSize: 11, marginTop: 2 }}>
+                  Powered by Expo & Node.js
+                </Text>
+              </View>
 
             </View>
           )}
@@ -1849,6 +2039,131 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </Modal>
 
+      {/* Submit Song Request Modal */}
+      <Modal
+        visible={showSongRequestModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowSongRequestModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSongRequestModal(false)}
+        >
+          <TouchableWithoutFeedback>
+            <View style={styles.requestModalContainer}>
+              <Text style={styles.requestModalTitle}>Request Song to Admin</Text>
+              <Text style={styles.requestModalSub}>
+                Admin will review your request and add it to the Musiana library manually.
+              </Text>
+              
+              <TextInput
+                style={styles.playlistModalInput}
+                placeholder="Song Title *"
+                placeholderTextColor="#7C7899"
+                value={requestTitle}
+                onChangeText={setRequestTitle}
+              />
+              
+              <TextInput
+                style={styles.playlistModalInput}
+                placeholder="Artist (Optional)"
+                placeholderTextColor="#7C7899"
+                value={requestArtist}
+                onChangeText={setRequestArtist}
+              />
+              
+              <TextInput
+                style={[styles.playlistModalInput, { height: 70 }]}
+                placeholder="Additional note or YouTube link (Optional)"
+                placeholderTextColor="#7C7899"
+                value={requestNote}
+                onChangeText={setRequestNote}
+                multiline={true}
+              />
+              
+              <View style={styles.playlistModalActions}>
+                <TouchableOpacity
+                  style={styles.playlistCancelBtn}
+                  onPress={() => setShowSongRequestModal(false)}
+                >
+                  <Text style={styles.playlistCancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={styles.playlistCreateBtn}
+                  onPress={handleSubmitSongRequest}
+                  disabled={submittingRequest}
+                >
+                  <Text style={styles.playlistCreateBtnText}>
+                    {submittingRequest ? 'Submitting...' : 'Submit Request'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Admin Update Request Status Modal */}
+      <Modal
+        visible={showAdminStatusModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowAdminStatusModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowAdminStatusModal(false)}
+        >
+          <TouchableWithoutFeedback>
+            <View style={styles.requestModalContainer}>
+              <Text style={styles.requestModalTitle}>Update Request Status</Text>
+              <Text style={{ color: '#BDB4FF', fontSize: 14, marginBottom: 12 }}>
+                &quot;{selectedRequest?.title}&quot; requested by {selectedRequest?.user?.username || 'User'}
+              </Text>
+
+              <TextInput
+                style={styles.playlistModalInput}
+                placeholder="Admin Note (e.g. Added to library, invalid link, etc.)"
+                placeholderTextColor="#7C7899"
+                value={adminNoteInput}
+                onChangeText={setAdminNoteInput}
+              />
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}>
+                <TouchableOpacity
+                  style={[styles.statusActionBtn, { backgroundColor: '#34C759', flex: 1, marginRight: 6 }]}
+                  onPress={() => handleUpdateRequestStatus('added')}
+                  disabled={updatingRequestStatus}
+                >
+                  <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" style={{ marginRight: 4 }} />
+                  <Text style={styles.statusActionBtnText}>Mark Added</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.statusActionBtn, { backgroundColor: '#FF3B30', flex: 1, marginLeft: 6 }]}
+                  onPress={() => handleUpdateRequestStatus('rejected')}
+                  disabled={updatingRequestStatus}
+                >
+                  <Ionicons name="close-circle" size={18} color="#FFFFFF" style={{ marginRight: 4 }} />
+                  <Text style={styles.statusActionBtnText}>Reject</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.playlistCancelBtn, { marginTop: 15, width: '100%', alignItems: 'center' }]}
+                onPress={() => setShowAdminStatusModal(false)}
+              >
+                <Text style={styles.playlistCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableWithoutFeedback>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Tab Switcher Body */}
       {activeTab === 'songs' && (
         selectedPlaylist ? renderPlaylistDetails() : renderSongsTab()
@@ -1860,7 +2175,7 @@ export default function HomeScreen() {
 
       {/* Floating Mini Player Bar (Above bottom tab bar) */}
       {currentlyPlaying && (
-        <View style={styles.miniPlayerContainer}>
+        <View style={[styles.miniPlayerContainer, { bottom: 60 + Math.max(insets.bottom, 10) }]}>
           {/* Main Row: Art, Title, Play/Pause Button */}
           <View style={styles.miniPlayerMainRow}>
             <TouchableOpacity 
@@ -1905,7 +2220,7 @@ export default function HomeScreen() {
       )}
 
       {/* Fixed Bottom Tab Navigation */}
-      <View style={styles.tabBar}>
+      <View style={[styles.tabBar, { height: 60 + insets.bottom, paddingBottom: Math.max(insets.bottom, 5) }]}>
         <TouchableOpacity 
           style={[styles.tabItem, (activeTab === 'songs' && !isSearching) && styles.tabItemActive]}
           onPress={() => handleTabChange('songs')}
@@ -3380,5 +3695,155 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 12,
     alignItems: 'center',
+  },
+  requestSongActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#8B5CF6',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    marginTop: 15,
+  },
+  requestSongActionBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  requestHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#251842',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#332354',
+  },
+  requestHeaderBtnText: {
+    color: '#BDB4FF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  emptyTextSub: {
+    color: '#7C7899',
+    fontSize: 13,
+    textAlign: 'center',
+    marginVertical: 10,
+  },
+  requestRowItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#251842',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#332354',
+  },
+  adminRequestRowItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    backgroundColor: '#251842',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#332354',
+  },
+  requestRowTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  requestRowArtist: {
+    color: '#BDB4FF',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  requestRowMeta: {
+    color: '#7C7899',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  requestRowNote: {
+    color: '#BDB4FF',
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  requestRowAdminNote: {
+    color: '#34C759',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  statusBadge: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+  },
+  statusBadgePending: {
+    backgroundColor: '#332354',
+  },
+  statusBadgeAdded: {
+    backgroundColor: 'rgba(52, 199, 89, 0.2)',
+    borderWidth: 1,
+    borderColor: '#34C759',
+  },
+  statusBadgeRejected: {
+    backgroundColor: 'rgba(255, 59, 48, 0.2)',
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  adminStatusBtn: {
+    backgroundColor: '#8B5CF6',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  adminStatusBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  requestModalContainer: {
+    width: '85%',
+    backgroundColor: '#1C1330',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#332354',
+  },
+  requestModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 6,
+  },
+  requestModalSub: {
+    fontSize: 13,
+    color: '#7C7899',
+    marginBottom: 16,
+  },
+  statusActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  statusActionBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: 'bold',
   },
 });

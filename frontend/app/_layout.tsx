@@ -40,6 +40,12 @@ export default function RootLayout() {
             headerShown: false
           }} 
         />
+        <Stack.Screen 
+          name="trim" 
+          options={{ 
+            headerShown: false
+          }} 
+        />
       </Stack>
     </AudioProvider>
   );

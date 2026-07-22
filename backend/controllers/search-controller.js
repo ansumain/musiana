@@ -199,6 +199,14 @@ const searchMusic = async (req, res) => {
  */
 const triggerDownload = async (req, res) => {
   try {
+    // Restrict direct download triggers to Admins & Super-Admins
+    if (!req.userInfo || (req.userInfo.role !== 'admin' && req.userInfo.role !== 'super-admin')) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only administrators can add new songs directly. Please submit a Song Request instead!'
+      });
+    }
+
     const { query, videoId, title, imageUrl } = req.body;
 
     if (!query || query.trim() === '') {
